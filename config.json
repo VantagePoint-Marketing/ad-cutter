@@ -1,0 +1,23 @@
+{
+  "output_dir": "C:/Users/RobB.CORP/OneDrive - Market Technologies, LLC/RevOps/Meta Ads/05 Ad Cutter Drafts",
+  "work_dir": "%LOCALAPPDATA%/ad-cutter",
+
+  "plan_model": "google/gemini-3.1-pro-preview",
+  "openrouter_key_file": "C:/Users/RobB.CORP/Projects/call-intel/.env",
+  "whisper_model": "medium.en",
+  "hyperframes_dir": "C:/Users/RobB.CORP/Projects/Ad Cuts - IMG_3381",
+
+  "brand": {
+    "name": "VantagePoint",
+    "product": "VantagePoint AI, predictive trading forecast software",
+    "audience": "active retail traders and investors who use technical indicators",
+    "cta_line": "See predictive trading forecasts in action",
+    "cta_button": "\u2192 Tap Learn More"
+  },
+
+  "ad_count": 3,
+  "ad_min_seconds": 20,
+  "ad_max_seconds": 75,
+  "cta_seconds": 3,
+  "render_quality": "delivery"
+}
