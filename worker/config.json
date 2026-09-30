@@ -3,7 +3,9 @@
   "work_dir": "%LOCALAPPDATA%/ad-cutter",
 
   "plan_model": "google/gemini-3.1-pro-preview",
-  "openrouter_key_file": "C:/Users/RobB.CORP/Projects/call-intel/.env",
+  "openrouter_key_env": "OPENROUTER_VIDEO_AGENT_KEY",
+  "monthly_budget_usd": 100,
+  "max_source_seconds": 600,
   "whisper_model": "medium.en",
   "hyperframes_dir": "C:/Users/RobB.CORP/Projects/Ad Cuts - IMG_3381",
 

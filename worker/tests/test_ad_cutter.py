@@ -27,9 +27,11 @@ def words_from(text, start=0.0, step=0.5):
 
 # ---------------------------------------------------------------- basics
 
-def test_parse_env_value():
-    assert ac.parse_env_value('A=1\nOPENROUTER_API_KEY="sk-x"\n', "OPENROUTER_API_KEY") == "sk-x"
-    assert ac.parse_env_value("B=2", "OPENROUTER_API_KEY") == ""
+def test_config_has_no_key_file_and_names_an_env_var():
+    cfg = json.loads((Path(__file__).resolve().parents[1] / "config.json").read_text(encoding="utf-8"))
+    assert "openrouter_key_file" not in cfg
+    assert cfg["openrouter_key_env"] == "OPENROUTER_VIDEO_AGENT_KEY"
+    assert not any("key_file" in k for k in cfg)
 
 
 def test_merge_percent_joins_number_and_sign():
