@@ -15,7 +15,7 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 # ffmpeg, and the libraries headless Chrome needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg ca-certificates fonts-liberation \
+      ffmpeg ca-certificates fonts-liberation unzip \
       libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
       libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libdbus-1-3 libexpat1 \
       libx11-6 libxcb1 libxext6 libglib2.0-0 \
