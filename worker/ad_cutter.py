@@ -42,6 +42,8 @@ from pathlib import Path
 
 import numpy as np
 
+from safe_media import UnsafeMedia, check_upload, clean_env, ffmpeg_input
+
 HERE = Path(__file__).resolve().parent
 FPS = 30
 PAUSE_MIN = 0.5      # silences longer than this are trimmed...
@@ -81,6 +83,7 @@ def openrouter_key(cfg: dict) -> str:
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    kw.setdefault("env", clean_env())      # child processes never see API keys or credentials
     return subprocess.run(cmd, check=True, **kw)
 
 
@@ -90,21 +93,31 @@ def snap(t: float) -> float:
 
 # ---------------------------------------------------------------- 1. prepare media
 
-def ffmpeg_to(dest: Path, args: list[str]) -> None:
+def ffmpeg_to(dest: Path, args: list[str], timeout: float = 30 * 60) -> None:
     """Run ffmpeg into a temp file and rename it into place, so an interrupted run never leaves a
     half-written file that a later run would trust."""
     tmp = dest.with_name(f"{dest.stem}.partial{dest.suffix}")
-    run(["ffmpeg", "-v", "error", "-y", *args, str(tmp)])
+    try:
+        run(["ffmpeg", "-v", "error", "-y", *args, str(tmp)], timeout=timeout)
+    except subprocess.TimeoutExpired as err:
+        raise AdCutterError(f"ffmpeg took over {timeout / 60:.0f} minutes making {dest.name} and was stopped") from err
     tmp.replace(dest)
 
 
-def prepare(src: Path, work: Path) -> dict:
-    """Working copy (1080x1920, 30 fps), 16 kHz mono wav, and a small proxy for Gemini."""
+def prepare(src: Path, work: Path, max_seconds: float = 600.0) -> dict:
+    """Working copy (1080x1920, 30 fps), 16 kHz mono wav, and a small proxy for Gemini.
+    The source is treated as hostile: its container is checked before ffmpeg opens it, and only the working copy
+    (which we made) is used after that."""
     work.mkdir(parents=True, exist_ok=True)
     full, wav, proxy = work / "source_1080x1920.mp4", work / "audio16k.wav", work / "proxy.mp4"
+    try:
+        info = check_upload(src, max_seconds=max_seconds)
+    except UnsafeMedia as err:
+        raise AdCutterError(f"can't use this video: {err}") from err
     if not full.exists():
         log.info("making 1080x1920 working copy")
-        ffmpeg_to(full, ["-i", str(src), "-vf",
+        # -t caps the copy at the checked length, in case the file's header understated it
+        ffmpeg_to(full, [*ffmpeg_input(info.demuxer), "-i", str(src), "-t", f"{max_seconds:.0f}", "-vf",
                          "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,format=yuv420p",
                          "-r", str(FPS), "-c:v", "libx264", "-preset", "fast", "-crf", "17", "-g", str(FPS),
                          "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"])
@@ -120,7 +133,8 @@ def prepare(src: Path, work: Path) -> dict:
         else:
             raise AdCutterError("video too long for Gemini planning (proxy over 18 MB); trim it first")
     duration = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                                     str(full)], capture_output=True, text=True, check=True).stdout.strip())
+                                     str(full)], capture_output=True, text=True, check=True,
+                                    env=clean_env()).stdout.strip())
     return {"full": full, "wav": wav, "proxy": proxy, "duration": duration}
 
 
@@ -594,7 +608,7 @@ def render(cfg: dict, project: Path, dest: Path) -> None:
     try:
         res = subprocess.run([npx(), "hyperframes", "render", str(project), "-q", cfg["render_quality"], "-o",
                               str(dest), "--quiet"], cwd=cfg["hyperframes_dir"], capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", timeout=45 * 60)
+                             encoding="utf-8", errors="replace", timeout=45 * 60, env=clean_env())
     except subprocess.TimeoutExpired as err:
         raise AdCutterError("HyperFrames render took over 45 minutes and was stopped") from err
     if res.returncode != 0 or not dest.exists():
@@ -604,7 +618,8 @@ def render(cfg: dict, project: Path, dest: Path) -> None:
 
 def check_composition(cfg: dict, project: Path) -> str:
     res = subprocess.run([npx(), "hyperframes", "check", str(project)], cwd=cfg["hyperframes_dir"],
-                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", env=clean_env(),
+                         timeout=5 * 60)
     plain = re.sub(r"\x1b\[[0-9;]*m", "", res.stdout + res.stderr)
     return "passed" if "Check passed" in plain else "FAILED:\n" + "\n".join(
         line for line in plain.splitlines() if "✗" in line or "error(s)" in line)[:1500]
@@ -613,7 +628,7 @@ def check_composition(cfg: dict, project: Path) -> str:
 def verify(cfg: dict, video: Path, expected: list[dict], body_len: float, work: Path) -> dict:
     probe = json.loads(subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json",
-         str(video)], capture_output=True, text=True, check=True).stdout)
+         str(video)], capture_output=True, text=True, check=True, env=clean_env()).stdout)
     v = next((s for s in probe["streams"] if s["codec_type"] == "video"), {})
     has_audio = any(s["codec_type"] == "audio" for s in probe["streams"])
     wav = work / "verify.wav"
@@ -663,7 +678,7 @@ def main(argv: list[str] | None = None) -> int:
     if not src.exists():
         raise AdCutterError(f"no such file: {src}")
     work = Path(cfg["work_dir"]) / re.sub(r"[^\w.-]+", "_", f"{src.stem}_{src.stat().st_size}")
-    media = prepare(src, work)
+    media = prepare(src, work, float(cfg.get("max_source_seconds", 600)))
     words = transcribe(cfg, media["wav"], work / "words.json")
     en = Energy.from_wav(media["wav"])
     log.info("%s words, %.0fs of video", len(words), media["duration"])
