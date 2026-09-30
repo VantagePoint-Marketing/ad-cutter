@@ -228,3 +228,19 @@ def test_unknown_route_rejected(client_factory):
     client, _ = client_factory(FakeTransport(replies=[ok()]))
     with pytest.raises(llm.LLMError, match="route"):
         client.chat_json(MODEL, [], route="anything", est_input_tokens=1)
+
+
+def test_key_without_a_limit_is_refused(client_factory):
+    t = FakeTransport(remaining=None, replies=[ok()])
+    client, _ = client_factory(t)
+    with pytest.raises(budget.BudgetExceeded, match="no spending limit"):
+        call(client)
+    assert t.posts == []
+
+
+def test_cut_off_reply_counts_at_worst_case(client_factory):
+    import http.client
+    t = FakeTransport(replies=[http.client.IncompleteRead(b"partial"), ok(0.12)])
+    client, led = client_factory(t)
+    call(client)
+    assert led.spent() == pytest.approx(0.12 + llm.estimate_cost(MODEL, 50_000, 16_000))

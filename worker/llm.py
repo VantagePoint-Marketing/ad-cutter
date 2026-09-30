@@ -97,7 +97,9 @@ class OpenRouter:
         estimate = estimate_cost(model, est_input_tokens, max_tokens)
         worst = estimate * attempts                  # every attempt can be billed
         remaining = self.key_remaining()
-        if remaining is not None and remaining < worst:
+        if remaining is None:                        # OpenRouter's limit is our hard stop: never run without one
+            raise BudgetExceeded("the OpenRouter key has no spending limit set; add a monthly limit on openrouter.ai")
+        if remaining < worst:
             raise BudgetExceeded(f"the OpenRouter key has ${remaining:.2f} left this month; this call could cost "
                                  f"up to ${worst:.2f}")
         res = self.ledger.reserve(worst, label)
@@ -107,6 +109,7 @@ class OpenRouter:
         last, charged, unknown, outcome, in_flight_error = None, 0.0, 0.0, None, None
         try:
             for attempt in range(1, attempts + 1):
+                data = None
                 try:
                     data = self.request("POST", f"{API}/chat/completions", headers=self._headers(), body=body,
                                         timeout=timeout)
@@ -133,6 +136,8 @@ class OpenRouter:
                     raise LLMError(f"Gemini timed out after {timeout / 60:.0f} minutes") from err
                 except Exception as err:          # noqa: BLE001 - bad JSON, cut-off reads, odd shapes: retry
                     last = f"{type(err).__name__}: {err}"
+                    if data is None:                  # failed after sending but before a usable reply: may be billed
+                        unknown += estimate
                 log.warning("Gemini attempt %s failed: %s", attempt, last)
                 if attempt < attempts:
                     self.sleep(20)

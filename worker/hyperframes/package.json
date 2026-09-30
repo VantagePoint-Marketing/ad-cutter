@@ -1,0 +1,8 @@
+{
+  "name": "va-hyperframes",
+  "private": true,
+  "description": "Pinned HyperFrames install for the video worker image",
+  "dependencies": {
+    "hyperframes": "0.8.92"
+  }
+}

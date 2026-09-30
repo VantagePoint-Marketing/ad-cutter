@@ -1,2 +1,5 @@
 # Vendored render assets are stored byte-for-byte so their SHA-256 in SOURCES.md stays valid.
 worker/template/vendor/** -text
+# Scripts and the Dockerfile run on Linux
+*.sh text eol=lf
+Dockerfile text eol=lf
