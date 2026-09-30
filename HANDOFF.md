@@ -31,6 +31,10 @@ secret writes (and refuses retries):
 Alternatively, switch this session's permission mode from Auto to the one that asks, then say "continue": Claude
 runs both steps and Robert approves each prompt.
 
+The session of 2026-09-30 ended here: Robert was given these two steps (also saved on his Desktop as
+`Video Agent - W0 staging handoff (2026-09-30).md`) and has not answered yet. Commit `053f487` on
+`w0-worker-cloud` holds everything described below and is pushed.
+
 **Right after the apply, check:** `npm run railway -- config plan` reports no changes (if it proposes to move
 the database or the worker to another region, stop and ask); the MCP `list-tcp-proxies` on the Postgres service
 returns none (blocker B1); the first build succeeds (`list-deployments`, `get-logs` with `types: ["build"]`).
@@ -75,7 +79,7 @@ estimates. Then report to Robert; the next phases are W1 (web app) and the Figma
   - `storage.py`, `migrate.py`, `db/migrations/001_worker.sql`.
   - `Dockerfile`: digest-pinned python:3.12-slim-bookworm + node:22-bookworm-slim; pinned hyperframes 0.8.92 with
     its Chrome behind `docker/chrome-offline.sh`; Whisper baked in and read-only; non-root; `PYTHONNOUSERSITE=1`.
-- Latest commit: Railway **Infrastructure as Code** and staging test tools.
+- `053f487`: Railway **Infrastructure as Code** and staging test tools.
   - `.railway/railway.ts` declares Postgres, the `media` bucket (region `iad`, immutable) and the worker service
     with its build, deploy and variable references; `OPENROUTER_VIDEO_AGENT_KEY` is `preserve()`.
     Railway's `railway.json` config-as-code is deprecated and **new services can't use it**, so
