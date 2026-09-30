@@ -4,3 +4,4 @@ __pycache__/
 *.wav
 *.mov
 .env
+node_modules/

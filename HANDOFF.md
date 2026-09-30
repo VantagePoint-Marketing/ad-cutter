@@ -1,40 +1,63 @@
 # Handoff: VantagePoint Video Agent (W0 + F in progress)
 
-Updated 2026-09-30. Read this first. Plans are on Robert's Desktop:
-- `Video Editing Agent - Plan (2026-09-30).md` (rev 1: the learning/playbook design)
-- `Video Editing Agent - Plan rev 2 (2026-09-30).md` (web app, security design §4)
-- `Video Editing Agent - Plan rev 2 addendum (2026-09-30).md` (**everything on Railway, not Vercel**; Figma in Robert's personal team)
+Updated 2026-09-30, evening. Read this first. The three plan documents (rev 1, rev 2, rev 2 addendum) were on
+Robert's Desktop and have been removed; the memory file `video_agent_plan.md` carries their summary.
 
 ## Where we left off
 
-**W0 step 8: deploying the worker to Railway staging.** Robert approved all four parts:
-1. push the branch (**done**);
-2. create the Railway project and staging setup (**in progress**);
-3. Robert pastes the OpenRouter key into Railway;
-4. one real test job with IMG_3381 (≈ $0.25 Gemini).
+**W0 step 8: deploying the worker to Railway staging.** Everything is prepared in the repo. Two things still need
+Robert, because the Claude Code permission classifier in this session blocks Railway infrastructure writes and
+secret writes (and refuses retries):
 
-**Waiting on Robert:** the Railway **staging environment ID**. He created a `staging` environment in the project, but the Railway MCP tools can't list environments. `describe-environment` always returns production; there's no create/list-environments tool and no Railway CLI on this PC. We asked him to paste the browser address while viewing staging; it contains `environmentId=…`.
+1. **Apply the staging infrastructure.** From the repo root on this PC, where the Railway CLI is already signed in
+   as VantagePoint AI and the folder is linked to project "App · Video Agent", environment `staging`:
 
-**Next steps once the ID arrives** (all in the staging environment):
-1. Add Postgres (template). **Delete its public TCP proxy** (architect blocker B1).
-2. Add a bucket named `media`.
-3. Create the worker service from GitHub `VantagePoint-Marketing/ad-cutter`, branch `w0-worker-cloud`:
-   - root directory `/`;
-   - Dockerfile `worker/Dockerfile`;
-   - config file path `worker/railway.json` (the pre-deploy migration runs from there).
-4. Worker variables:
-   - `DATABASE_URL=${{Postgres.DATABASE_URL}}`, which must be the `.railway.internal` host;
-   - the bucket reference variables `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `ENDPOINT`, `REGION`;
-   - `MONTHLY_BUDGET_USD=90`;
-   - **Robert pastes `OPENROUTER_VIDEO_AGENT_KEY` himself.** Never handle the key value.
-5. Deploy. Then run `python jobs.py --selftest` in the container. It checks the DB, the bucket, the key limit, the Whisper offline load, a 1-second render, and that the browser is offline. Also run `pytest tests/test_pg_integration.py` with `TEST_DATABASE_URL` set to the staging DB.
-6. The real test: upload IMG_3381 to `uploads/<job_id>/source`, insert a `jobs` row, then watch the logs, cost and output. Measure render time and cost per video, then update the cost estimates in the plan.
-7. Report to Robert. The next phases are W1 (web app) and the Figma review.
+   ```bash
+   npm run railway -- config apply
+   ```
+
+   It prints the plan and asks for a yes. The plan on 2026-09-30 was: **2 to add** (database Postgres, bucket media),
+   **10 to change** (worker source = GitHub `VantagePoint-Marketing/ad-cutter` branch `w0-worker-cloud`, Dockerfile
+   `worker/Dockerfile`, pre-deploy `python migrate.py`, start `python jobs.py`, restart on failure, and the
+   variables DATABASE_URL, BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MONTHLY_BUDGET_USD=90),
+   **0 to destroy**. Connecting the source starts the first build (10 to 20 minutes: Whisper model and Chrome are
+   baked into the image).
+
+2. **Paste the OpenRouter key.** Railway dashboard → App · Video Agent → `staging` → `worker` → Variables → add
+   `OPENROUTER_VIDEO_AGENT_KEY` with the value of the Windows user environment variable of the same name (never
+   from a file). Railway redeploys the worker. The worker starts without the key, but a job would fail until it is
+   set, and `--selftest` checks it.
+
+Alternatively, switch this session's permission mode from Auto to the one that asks, then say "continue": Claude
+runs both steps and Robert approves each prompt.
+
+**Right after the apply, check:** `npm run railway -- config plan` reports no changes (if it proposes to move
+the database or the worker to another region, stop and ask); the MCP `list-tcp-proxies` on the Postgres service
+returns none (blocker B1); the first build succeeds (`list-deployments`, `get-logs` with `types: ["build"]`).
+
+**Then Claude does the rest** (all from the repo root; `npm run railway -- ...` is the repo-local CLI). Always
+wrap container commands in `sh -c '...'`: Git Bash rewrites bare `/app/...` arguments into Windows paths. The first
+`railway ssh` registers an SSH key on the Railway account (it asks; say yes).
+
+```bash
+npm run railway -- ssh -- sh -c 'cd /app/worker && python jobs.py --selftest'
+npm run railway -- ssh -- sh -c 'cd /app/worker && TEST_DATABASE_URL=$DATABASE_URL python -m pytest -q tests/test_pg_integration.py'
+npm run railway -- run -- python worker/tools/upload_source.py "C:\Users\RobB.CORP\OneDrive - Market Technologies, LLC\IMG_3381.MOV"
+npm run railway -- ssh -- sh -c 'cd /app/worker && python tools/jobctl.py enqueue --job-id <id printed above> --source-name IMG_3381.MOV'
+npm run railway -- ssh -- sh -c 'cd /app/worker && python tools/jobctl.py status <id>'     # also: events, result, spend, list
+```
+
+If the SSH session turns out not to carry the service variables, check with `sh -c 'env | cut -d= -f1'` (names
+only) before assuming anything. The self-test checks the database, the bucket, the key's remaining limit, ffmpeg,
+the offline Whisper load, that the render browser has no internet, and a one-second render. The test job is the real
+4K IMG_3381.MOV (842 MB, 2:29), about $0.25 of Gemini. Measure render time and cost per video, then update the cost
+estimates. Then report to Robert; the next phases are W1 (web app) and the Figma review.
 
 ## What is built
 
 **Branch `w0-worker-cloud`** (pushed; main untouched):
-- `0810049`: pipeline moved to `worker/`. Fonts and GSAP vendored in `worker/template/vendor/` (SHA-256s in `SOURCES.md`), so renders are offline.
+- `0810049`: pipeline moved to `worker/`. Fonts and GSAP vendored in `worker/template/vendor/` (SHA-256s in
+  `SOURCES.md`), so renders are offline.
 - `e8c0649`: `safe_media.py`.
   - Magic-byte sniff, forced demuxer, `-protocol_whitelist file`, `-enable_drefs 0`.
   - Video+audio required, 1 s to 10 min, ≤4K on every track.
@@ -46,16 +69,24 @@ Updated 2026-09-30. Read this first. Plans are on Robert's Desktop:
   - https allowlist; YouTube media hosts always blocked; redirects never followed.
   - `ad_cutter.run_pipeline()`.
 - `179d5ee`: the cloud worker.
-  - `jobs.py`: Postgres queue with SKIP LOCKED, heartbeats, stale requeue, 3 attempts, `Stop(BaseException)` on SIGTERM, owner-guarded finish, prctl dumpable=0, `--selftest`, `--once`.
+  - `jobs.py`: Postgres queue with SKIP LOCKED, heartbeats, stale requeue, 3 attempts, `Stop(BaseException)` on
+    SIGTERM, owner-guarded finish, prctl dumpable=0, `--selftest`, `--once`.
   - `pg_budget.py`: row-locked ledger; `release_stale` runs hourly.
   - `storage.py`, `migrate.py`, `db/migrations/001_worker.sql`.
-  - `Dockerfile`:
-    - digest-pinned python:3.12-slim-bookworm + node:22-bookworm-slim;
-    - pinned hyperframes 0.8.92 with its Chrome behind `docker/chrome-offline.sh` (host-resolver block, dead proxy, no WebRTC UDP);
-    - Whisper baked in and read-only; non-root; `PYTHONNOUSERSITE=1`.
-  - `railway.json`.
+  - `Dockerfile`: digest-pinned python:3.12-slim-bookworm + node:22-bookworm-slim; pinned hyperframes 0.8.92 with
+    its Chrome behind `docker/chrome-offline.sh`; Whisper baked in and read-only; non-root; `PYTHONNOUSERSITE=1`.
+- Latest commit: Railway **Infrastructure as Code** and staging test tools.
+  - `.railway/railway.ts` declares Postgres, the `media` bucket (region `iad`, immutable) and the worker service
+    with its build, deploy and variable references; `OPENROUTER_VIDEO_AGENT_KEY` is `preserve()`.
+    Railway's `railway.json` config-as-code is deprecated and **new services can't use it**, so
+    `worker/railway.json` was removed.
+  - `package.json` pins the CLI (`@railway/cli`) and the IaC SDK (`railway`) as dev tools; `scripts/railway.mjs`
+    runs the CLI with its binary on the PATH (the SDK's version check needs that on Windows).
+  - `worker/tools/upload_source.py` (PC side, through `railway run`) and `worker/tools/jobctl.py` (container side,
+    through `railway ssh`): upload a video as `uploads/<job id>/source`, enqueue, and inspect jobs and spend.
 
-**Tests:** `cd worker && python -m pytest -q` gives 101 passed, 5 skipped. The skipped ones are the Postgres integration tests, which need `TEST_DATABASE_URL`.
+**Tests:** `cd worker && python -m pytest -q` gives 101 passed, 5 skipped. The skipped ones are the Postgres
+integration tests, which need `TEST_DATABASE_URL`.
 
 **Reviews:**
 - Every commit was code-reviewer approved after its blockers were fixed.
@@ -70,11 +101,13 @@ Updated 2026-09-30. Read this first. Plans are on Robert's Desktop:
   - Call `node_modules/.bin/hyperframes`, not npx.
   - Quota caps on the YouTube/Foreplay keys.
 
-**Local CLI still works:** drag a video onto `Cut ads.cmd`. It now uses the `video-agent` key and a local ledger at `%LOCALAPPDATA%\ad-cutter\spend-ledger.jsonl`.
+**Local CLI still works:** drag a video onto `Cut ads.cmd`. It uses the `video-agent` key and a local ledger at
+`%LOCALAPPDATA%\ad-cutter\spend-ledger.jsonl`.
 
 ## F: Figma design (draft, awaiting Robert's review)
 
-https://www.figma.com/design/3lDijX1zUtREW6VPKnhI9C, in Robert's **personal** team. Move it to a company Figma account later (open item).
+https://www.figma.com/design/3lDijX1zUtREW6VPKnhI9C, in Robert's **personal** team. Move it to a company Figma
+account later (open item).
 - Pages: Cover, Foundations, Components, Screens.
 - Screens:
   - desktop 1440: sign in ×3, New video, Videos, Review, Playbook, References, Admin;
@@ -83,13 +116,18 @@ https://www.figma.com/design/3lDijX1zUtREW6VPKnhI9C, in Robert's **personal** te
 
 ## Outside systems
 
-- **Railway:** workspace "Marketing Department" (`ffa79be0-2c63-498a-8045-fd615dfa5ffc`), project **"App · Video Agent"** `d30013fd-1056-4a21-9a8d-730f81cd3390`.
-  - Environments: `production` `ad3bf035-253a-4e3e-92e0-9dc81d28062e` (empty) and `staging` (ID pending).
-  - Nothing is deployed yet.
+- **Railway:** workspace "Marketing Department" (`ffa79be0-2c63-498a-8045-fd615dfa5ffc`), project
+  **"App · Video Agent"** `d30013fd-1056-4a21-9a8d-730f81cd3390`.
+  - Environments: `staging` `9c59f900-b58f-4bd6-89cc-1eb961834e09`, `production`
+    `ad3bf035-253a-4e3e-92e0-9dc81d28062e` (empty).
+  - Staging has one empty service, `worker` `5be39f23-9254-4896-bf5e-9640fbe1348b`, nothing deployed. The IaC
+    apply fills in the rest.
+  - The Railway CLI on this PC is signed in as VantagePoint AI (token in `%USERPROFILE%\.railway\config.json`;
+    `npm run railway -- logout` removes it). The repo folder is linked to staging with service `worker`.
 - **OpenRouter:** keys are Windows user env vars on this PC.
   - `OPENROUTER_VIDEO_AGENT_KEY`: $100/month limit.
   - `OPENROUTER_VIDEO_AGENT_LIBRARY_KEY`: $25/month limit.
-  - Verified with GET /api/v1/key. They will be copied into Railway by Robert.
+  - Verified with GET /api/v1/key. Robert pastes the first one into Railway (step 2 above).
 - **Foreplay:** Basic plan (monthly) + API, 10k credits/month. Spyder is locked; Robert chose to stay on Basic.
   - Boards to use: #video_ads, #demo_ads, #retargeting_ads, #event_inspo.
   - Seeds are approved (see the memory file `video_agent_plan.md`).
@@ -98,19 +136,25 @@ https://www.figma.com/design/3lDijX1zUtREW6VPKnhI9C, in Robert's **personal** te
 
 ## Tooling notes
 
-- The Railway MCP tool schemas are empty; parameter names are found by trial.
-  - `create-project` takes `name`, `workspaceId`, `description`.
-  - `railway-agent` takes `message`, `projectId`, `environmentId`.
-  - None can create or list environments.
-- Git has no global identity on this PC. Commit with `-c user.name/-c user.email` copied from commit df34198 ("Robert (via Claude Code)").
-- Bash heredocs mangle backslashes on this machine. Write helper scripts to the scratchpad instead, or edit with the Edit tool.
-- Never print keys. The earlier plain-text key file on the Desktop was moved to the Recycle Bin; Robert needs to empty the Recycle Bin.
+- The Railway MCP tools now have full schemas; `list-services` lists environments with their IDs.
+- In this session's Auto permission mode the classifier denied: live and staged bucket creation, live Postgres
+  creation (a staged one was allowed, then withdrawn), `update-service` settings, and every way of writing the
+  OpenRouter key (CLI, MCP, even writing a helper script for it). A denial covers the outcome, so don't retry it
+  through another tool; hand it to Robert or use the asking permission mode.
+- `railway config plan` is read-only and safe to run any time.
+- Git has no global identity on this PC. Commit with `-c user.name/-c user.email` copied from commit df34198
+  ("Robert (via Claude Code)").
+- Bash heredocs mangle backslashes on this machine. Write helper scripts with the Write tool instead.
+- Never print keys. `railway variable list` and the MCP `list-variables` print values; use `describe-service`
+  (names only) instead once the key is set.
 - Filed side issue: `Projects\Admin\Video Agent\Caption Words Run Together`.
 
 ## Open decisions
 
 | Decision | Who |
 |---|---|
+| Run `npm run railway -- config apply` for staging (or switch the session to asking mode) | Robert |
+| Paste `OPENROUTER_VIDEO_AGENT_KEY` into the worker's Railway variables | Robert |
 | Figma design approval | Robert |
 | Resend signup + 3 DNS records (login emails, needed for W1) | Robert, and whoever runs the DNS |
 | Staff emails to invite (W1) | Robert |

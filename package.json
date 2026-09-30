@@ -1,0 +1,12 @@
+{
+  "name": "video-agent",
+  "private": true,
+  "description": "Repo-level tooling: Railway Infrastructure as Code (.railway/railway.ts) and the Railway CLI. The worker lives in worker/.",
+  "scripts": {
+    "railway": "node scripts/railway.mjs"
+  },
+  "devDependencies": {
+    "@railway/cli": "5.63.1",
+    "railway": "3.12.0"
+  }
+}

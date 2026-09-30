@@ -1,5 +1,5 @@
 # Video agent worker: ffmpeg + Whisper (CPU) + HyperFrames (headless Chrome) + the Python pipeline.
-# Build context is the repository root (Railway: root directory "/", RAILWAY_DOCKERFILE_PATH=worker/Dockerfile).
+# Build context is the repository root; the service settings (Dockerfile path, pre-deploy, start command) live in .railway/railway.ts.
 # Base images are pinned by digest; update them deliberately.
 
 FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS node

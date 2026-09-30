@@ -15,5 +15,6 @@ How it works:
 - Fonts and GSAP are stored in `worker/template/vendor/` (see `SOURCES.md` there), so renders need no internet.
 - Useful options: `--replan` (ask Gemini again, about $0.10), `--only 2` (rebuild one ad), `--no-render`.
 - Tests: run `python -m pytest -q` from `worker/`.
+- Cloud version (Railway worker, private Postgres, media bucket): `.railway/README.md` for the infrastructure file and `HANDOFF.md` for the current state and test steps.
 
-**Data:** only a small 640p proxy of the video goes to Gemini, through OpenRouter's zero-retention Google endpoints. The key is read from `call-intel\.env`. Nothing is published anywhere.
+**Data:** only a small 640p proxy of the video goes to Gemini, through OpenRouter's zero-retention Google endpoints. The key comes from the `OPENROUTER_VIDEO_AGENT_KEY` environment variable, never from a file. Nothing is published anywhere.
