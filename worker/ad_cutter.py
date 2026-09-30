@@ -739,6 +739,9 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
             spans.append((a, b, c["text"]))
     (project / "index.html").write_text(compose(ad, caps, place_callouts(spans, body_len), body_len, cfg),
                                         encoding="utf-8")
+    # fonts and GSAP travel with the project: the render browser has no internet access
+    shutil.copytree(HERE / "template" / "vendor", project / "vendor", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("licenses", "*.md"))
     (project / "hyperframes.json").write_text(json.dumps({"media": {"autoProxy": True}}), encoding="utf-8")
     (project / "meta.json").write_text(json.dumps({"id": f"ad{k}", "name": ad["name"]}), encoding="utf-8")
     entry["check"] = check_composition(cfg, project)

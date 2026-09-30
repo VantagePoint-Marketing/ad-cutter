@@ -10,8 +10,10 @@ How it works:
 2. **Cutting and rendering (this PC):** Whisper transcribes locally. Every cut edge is snapped to the gap between words, pauses are trimmed, and audio is levelled to -14 LUFS. HyperFrames renders the captions, headline, callouts and CTA.
 3. **Checking:** each finished ad is transcribed again and compared with its captions.
 
-- Settings live in `config.json`: brand, CTA, model and output folder.
+- The pipeline lives in `worker/` (this is becoming the processing service of the web-based video agent).
+- Settings live in `worker/config.json`: brand, CTA, model and output folder.
+- Fonts and GSAP are stored in `worker/template/vendor/` (see `SOURCES.md` there), so renders need no internet.
 - Useful options: `--replan` (ask Gemini again, about $0.10), `--only 2` (rebuild one ad), `--no-render`.
-- Tests: `python -m pytest -q`.
+- Tests: run `python -m pytest -q` from `worker/`.
 
 **Data:** only a small 640p proxy of the video goes to Gemini, through OpenRouter's zero-retention Google endpoints. The key is read from `call-intel\.env`. Nothing is published anywhere.
