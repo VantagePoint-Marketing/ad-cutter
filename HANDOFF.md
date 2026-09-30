@@ -1,54 +1,42 @@
 # Handoff: VantagePoint Video Agent (W0 + F in progress)
 
-Updated 2026-09-30, evening. Read this first. The three plan documents (rev 1, rev 2, rev 2 addendum) were on
+Updated 2026-09-30, 17:40 ET. Read this first. The three plan documents (rev 1, rev 2, rev 2 addendum) were on
 Robert's Desktop and have been removed; the memory file `video_agent_plan.md` carries their summary.
 
 ## Where we left off
 
-**W0 step 8: deploying the worker to Railway staging.** Everything is prepared in the repo. Two things still need
-Robert, because the Claude Code permission classifier in this session blocks Railway infrastructure writes and
-secret writes (and refuses retries):
+**W0 step 8: the worker is deployed and running on Railway staging.** Robert applied the Infrastructure as Code
+himself (`npm run railway -- config apply`, 2026-09-30 ~17:23 ET). The first build failed because the slim image had
+no `unzip` for HyperFrames' Chrome download; commit `1b2bee9` fixed it, and deployment `e559a7c4` succeeded: the
+pre-deploy migration applied `001_worker.sql`, and the worker logged `worker … ready`.
 
-1. **Apply the staging infrastructure.** From the repo root on this PC, where the Railway CLI is already signed in
-   as VantagePoint AI and the folder is linked to project "App · Video Agent", environment `staging`:
-
-   ```bash
-   npm run railway -- config apply
-   ```
-
-   It prints the plan and asks for a yes. The plan on 2026-09-30 was: **2 to add** (database Postgres, bucket media),
-   **10 to change** (worker source = GitHub `VantagePoint-Marketing/ad-cutter` branch `w0-worker-cloud`, Dockerfile
-   `worker/Dockerfile`, pre-deploy `python migrate.py`, start `python jobs.py`, restart on failure, and the
-   variables DATABASE_URL, BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MONTHLY_BUDGET_USD=90),
-   **0 to destroy**. Connecting the source starts the first build (10 to 20 minutes: Whisper model and Chrome are
-   baked into the image).
-
-2. **Paste the OpenRouter key.** Railway dashboard → App · Video Agent → `staging` → `worker` → Variables → add
+**Waiting on Robert:**
+1. **Paste the OpenRouter key.** Railway dashboard → App · Video Agent → `staging` → `worker` → Variables → add
    `OPENROUTER_VIDEO_AGENT_KEY` with the value of the Windows user environment variable of the same name (never
-   from a file). Railway redeploys the worker. The worker starts without the key, but a job would fail until it is
-   set, and `--selftest` checks it.
+   from a file). As of 17:31 ET the worker's variables were still only the seven from the IaC file. Railway
+   redeploys the worker when the variable is added. A job fails until it is set, and `--selftest` checks it.
+2. **Decide how to accept Railway's SSH host key.** `railway ssh` failed with `Host key verification failed`
+   because `ssh.railway.com` is not in this PC's `known_hosts` and the CLI runs ssh non-interactively. Claude
+   proposed a probe connection (`ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes probe@ssh.railway.com`,
+   which records the host key and then fails to log in) and Robert stopped it before it ran. Options: Robert runs
+   `npm run railway -- ssh -i "$env:USERPROFILE\.railway\ssh\railway_video_agent"` once in his own terminal and
+   answers `yes` to the host-key prompt; or he approves the probe; or someone adds the key with `ssh-keyscan`.
+   Ask him which.
+3. Optional cleanup: staging still has a stale staged patch "Deploy PostgreSQL" (patch `9e95e408…`, a staged
+   volume `postgres-volume` `4c232b86…`) left from an earlier withdrawn attempt. It can't be removed by tool
+   ("not provisioned"). Discard it in the dashboard; applying it would only create an orphan volume.
 
-Alternatively, switch this session's permission mode from Auto to the one that asks, then say "continue": Claude
-runs both steps and Robert approves each prompt.
-
-The session of 2026-09-30 ended here: Robert was given these two steps (also saved on his Desktop as
-`Video Agent - W0 staging handoff (2026-09-30).md`) and has not answered yet. Commit `053f487` on
-`w0-worker-cloud` holds everything described below and is pushed.
-
-**Right after the apply, check:** `npm run railway -- config plan` reports no changes (if it proposes to move
-the database or the worker to another region, stop and ask); the MCP `list-tcp-proxies` on the Postgres service
-returns none (blocker B1); the first build succeeds (`list-deployments`, `get-logs` with `types: ["build"]`).
-
-**Then Claude does the rest** (all from the repo root; `npm run railway -- ...` is the repo-local CLI). Always
-wrap container commands in `sh -c '...'`: Git Bash rewrites bare `/app/...` arguments into Windows paths. The first
-`railway ssh` registers an SSH key on the Railway account (it asks; say yes).
+**Then Claude does the rest** (from the repo root; `npm run railway -- ...` is the repo-local CLI; pass the key
+with `-i` every time because it lives outside `~/.ssh`; always wrap container commands in `sh -c '...'` because Git
+Bash rewrites bare `/app/...` arguments into Windows paths):
 
 ```bash
-npm run railway -- ssh -- sh -c 'cd /app/worker && python jobs.py --selftest'
-npm run railway -- ssh -- sh -c 'cd /app/worker && TEST_DATABASE_URL=$DATABASE_URL python -m pytest -q tests/test_pg_integration.py'
+KEY="$HOME/.railway/ssh/railway_video_agent"
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python jobs.py --selftest'
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && TEST_DATABASE_URL=$DATABASE_URL python -m pytest -q tests/test_pg_integration.py'
 npm run railway -- run -- python worker/tools/upload_source.py "C:\Users\RobB.CORP\OneDrive - Market Technologies, LLC\IMG_3381.MOV"
-npm run railway -- ssh -- sh -c 'cd /app/worker && python tools/jobctl.py enqueue --job-id <id printed above> --source-name IMG_3381.MOV'
-npm run railway -- ssh -- sh -c 'cd /app/worker && python tools/jobctl.py status <id>'     # also: events, result, spend, list
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py enqueue --job-id <id printed above> --source-name IMG_3381.MOV'
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py status <id>'     # also: events, result, spend, list
 ```
 
 If the SSH session turns out not to carry the service variables, check with `sh -c 'env | cut -d= -f1'` (names
@@ -56,6 +44,10 @@ only) before assuming anything. The self-test checks the database, the bucket, t
 the offline Whisper load, that the render browser has no internet, and a one-second render. The test job is the real
 4K IMG_3381.MOV (842 MB, 2:29), about $0.25 of Gemini. Measure render time and cost per video, then update the cost
 estimates. Then report to Robert; the next phases are W1 (web app) and the Figma review.
+
+**Checks already done after the apply:** Postgres has no TCP proxy (blocker B1); `railway config plan` reports one
+harmless drift (the worker's restart policy ON_FAILURE/10 was not stored, which is Railway's default anyway; a later
+apply will set it); the bucket `media` is live in `iad`; Postgres runs in `iad` with a 50 GB volume.
 
 ## What is built
 
@@ -88,12 +80,14 @@ estimates. Then report to Robert; the next phases are W1 (web app) and the Figma
     runs the CLI with its binary on the PATH (the SDK's version check needs that on Windows).
   - `worker/tools/upload_source.py` (PC side, through `railway run`) and `worker/tools/jobctl.py` (container side,
     through `railway ssh`): upload a video as `uploads/<job id>/source`, enqueue, and inspect jobs and spend.
+- `1b2bee9`: `unzip` added to the worker image (the first Railway build failed without it). Build time on
+  Railway: about 5 minutes.
 
 **Tests:** `cd worker && python -m pytest -q` gives 101 passed, 5 skipped. The skipped ones are the Postgres
 integration tests, which need `TEST_DATABASE_URL`.
 
 **Reviews:**
-- Every commit was code-reviewer approved after its blockers were fixed.
+- Every commit was code-reviewer approved after its blockers were fixed (the `unzip` one-liner was not reviewed).
 - The architect reviewed keys, spend and security: 5 blockers fixed, spend control rated sound.
 - W1 follow-ups:
   - `source_key` must equal `Bucket.upload_key(job_id)`; a rebuild's parent must have the same owner.
@@ -123,15 +117,20 @@ account later (open item).
 - **Railway:** workspace "Marketing Department" (`ffa79be0-2c63-498a-8045-fd615dfa5ffc`), project
   **"App · Video Agent"** `d30013fd-1056-4a21-9a8d-730f81cd3390`.
   - Environments: `staging` `9c59f900-b58f-4bd6-89cc-1eb961834e09`, `production`
-    `ad3bf035-253a-4e3e-92e0-9dc81d28062e` (empty).
-  - Staging has one empty service, `worker` `5be39f23-9254-4896-bf5e-9640fbe1348b`, nothing deployed. The IaC
-    apply fills in the rest.
+    `ad3bf035-253a-4e3e-92e0-9dc81d28062e` (empty; do not apply the IaC there until `main` has `worker/`).
+  - Staging: `worker` `5be39f23-9254-4896-bf5e-9640fbe1348b` (running, deployment `e559a7c4`), `Postgres`
+    `cf176990-8e41-4ba9-8213-870ab38ead97` (volume `postgres-volume-oDH6` 50 GB, no TCP proxy), bucket `media`
+    `9865e018-1e3f-4bc3-9f2d-206148045030` (iad).
   - The Railway CLI on this PC is signed in as VantagePoint AI (token in `%USERPROFILE%\.railway\config.json`;
     `npm run railway -- logout` removes it). The repo folder is linked to staging with service `worker`.
+  - SSH: key pair `%USERPROFILE%\.railway\ssh\railway_video_agent` (+ `.pub`), registered on the Railway account
+    as "RobB PC (video agent)", fingerprint `SHA256:Kt4VTEbS09yu8uqFou/mEChFAiaKTgiNraRUOio4iT8`
+    (railway.com/account/ssh-keys). `~/.ssh` on this PC is protected by a deny rule, which is why the key lives
+    there and `railway ssh keys add` could not see it; it was registered through the dashboard in Chrome.
 - **OpenRouter:** keys are Windows user env vars on this PC.
   - `OPENROUTER_VIDEO_AGENT_KEY`: $100/month limit.
   - `OPENROUTER_VIDEO_AGENT_LIBRARY_KEY`: $25/month limit.
-  - Verified with GET /api/v1/key. Robert pastes the first one into Railway (step 2 above).
+  - Verified with GET /api/v1/key. Robert pastes the first one into Railway (step 1 above).
 - **Foreplay:** Basic plan (monthly) + API, 10k credits/month. Spyder is locked; Robert chose to stay on Basic.
   - Boards to use: #video_ads, #demo_ads, #retargeting_ads, #event_inspo.
   - Seeds are approved (see the memory file `video_agent_plan.md`).
@@ -140,12 +139,17 @@ account later (open item).
 
 ## Tooling notes
 
-- The Railway MCP tools now have full schemas; `list-services` lists environments with their IDs.
+- The Railway MCP tools have full schemas; `list-services` lists environments with their IDs; `get-logs` with
+  `types: ["build"]` shows build output; `describe-service` lists variable names without values.
 - In this session's Auto permission mode the classifier denied: live and staged bucket creation, live Postgres
-  creation (a staged one was allowed, then withdrawn), `update-service` settings, and every way of writing the
-  OpenRouter key (CLI, MCP, even writing a helper script for it). A denial covers the outcome, so don't retry it
-  through another tool; hand it to Robert or use the asking permission mode.
-- `railway config plan` is read-only and safe to run any time.
+  creation (a staged one was allowed, then withdrawn), `update-service` settings, every way of writing the
+  OpenRouter key (CLI, MCP, even writing a helper script for it), listing or writing `~/.ssh`, and one CLI
+  `--help` read. A denial covers the outcome, so don't retry it through another tool; hand it to Robert or use
+  the asking permission mode. Robert ran the IaC apply himself in his terminal.
+- `railway config plan` is read-only and safe to run any time. `npm run railway -- ...` is required on Windows
+  (see `scripts/railway.mjs`).
+- `railway ssh keys add` only scans `~/.ssh` and the SSH agent, and the Windows CLI cannot see a Git Bash agent.
+- Git Bash rewrites bare `/app/...` arguments to Windows paths; wrap container commands in `sh -c '...'`.
 - Git has no global identity on this PC. Commit with `-c user.name/-c user.email` copied from commit df34198
   ("Robert (via Claude Code)").
 - Bash heredocs mangle backslashes on this machine. Write helper scripts with the Write tool instead.
@@ -157,8 +161,9 @@ account later (open item).
 
 | Decision | Who |
 |---|---|
-| Run `npm run railway -- config apply` for staging (or switch the session to asking mode) | Robert |
 | Paste `OPENROUTER_VIDEO_AGENT_KEY` into the worker's Railway variables | Robert |
+| How to accept Railway's SSH host key on this PC (see "Waiting on Robert") | Robert |
+| Discard the stale staged patch in staging | Robert |
 | Figma design approval | Robert |
 | Resend signup + 3 DNS records (login emails, needed for W1) | Robert, and whoever runs the DNS |
 | Staff emails to invite (W1) | Robert |
