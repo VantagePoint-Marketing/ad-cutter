@@ -276,7 +276,11 @@ reference look for the page once Robert wants more than the plain `index.html`. 
   in Railway) and `OPENROUTER_VIDEO_AGENT_LIBRARY_KEY` ($25/month). Verified with GET /api/v1/key.
 - **Foreplay:** Basic plan (monthly) + API, 10k credits/month. Boards: #video_ads, #demo_ads, #retargeting_ads,
   #event_inspo. Seeds approved (memory file `video_agent_plan.md`). Not used by anything built yet.
-- **GitHub:** `VantagePoint-Marketing/ad-cutter`. Rename to `video-agent` later; needs approval.
+- **GitHub:** `VantagePoint-Marketing/video-agent` (renamed from `ad-cutter` on 2026-10-01 at Robert's request; GitHub
+  redirects the old address and Railway followed the rename, both services still deploy from the branch).
+- **Done 2026-10-01 at Robert's request:** the orphan 50 GB `postgres-volume` in staging was deleted (the live database
+  uses `postgres-volume-oDH6`). The Railway $150/month usage limit is NOT set: the Railway tools here have no billing
+  access; set it in Railway → account/workspace settings → Usage/Billing.
 - **Resend / login emails:** no longer needed (no sign-in).
 - **Test video:** `IMG_3381.MOV` at `OneDrive - Market Technologies, LLC\Obsidian\01_VantagePoint\
   90_Source_Library\Call_Recordings_and_Transcripts\Meeting_Transcripts\Team_Meeting_Audio\IMG_3381.MOV`
@@ -312,8 +316,8 @@ reference look for the page once Robert wants more than the plain `index.html`. 
 | Paste `GEMINI_API_KEY` and `YOUTUBE_API_KEY` into the worker's Railway variables (starts the library) | Robert |
 | Name the top mistakes in the ads (mechanical fixes vs. taste for the loop) | Robert |
 | Read playbook v1 before it goes into the prompts (step C) | Robert |
-| Delete the orphan volume `postgres-volume` (`4c232b86...`) in staging | Robert |
+| ~~Delete the orphan volume `postgres-volume`~~ | done 2026-10-01 |
 | Keep the $150 key in Railway or swap in the PC's $100/month key | Robert (he said keep it) |
-| Railway $150/month usage alert | Robert, in Railway billing settings |
-| Rename the repo to `video-agent`; move the Figma file to a company team | Robert |
+| Railway $150/month usage limit | Robert, in Railway billing settings (the tools here cannot reach billing) |
+| ~~Rename the repo to `video-agent`~~ | done 2026-10-01. Still open: move the Figma file to a company team |
 | When to merge `w0-worker-cloud` into `main` and apply the IaC to `production` | Robert, after the staging test |

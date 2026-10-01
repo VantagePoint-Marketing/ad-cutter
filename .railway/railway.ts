@@ -5,7 +5,7 @@
 // pasted into Railway by a person and `preserve()` keeps whatever is set.
 import { bucket, defineRailway, github, postgres, preserve, project, ref, service } from "railway/iac";
 
-const REPO = "VantagePoint-Marketing/ad-cutter";
+const REPO = "VantagePoint-Marketing/video-agent";
 // Bucket region codes (sjc, iad, ams, sin) are not the same as deploy regions, and a bucket's region can't change
 // later. Postgres and the worker are left on the workspace's default deploy region, which is Virginia today, the
 // same place as this bucket. Check with `railway config plan` after the first apply: it should report no changes.
