@@ -5,351 +5,892 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<title>Video Agent</title>
+<title>Ad Cutter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap">
 <style>
-  :root { --ink: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --bg: #f5f5f7; --card: #fff; --blue: #0071e3;
-          --red: #c0392b; --amber: #b7791f; --amber-bg: #fff8e6; --green: #1a7f37; }
+  /* VantagePoint AI design system: violet #9615EA, signal blue #0F63AC, midnight indigo #140C3F, Nunito. */
+  :root {
+    --violet: #9615EA; --blue: #0F63AC; --indigo: #523CCB; --midnight: #140C3F;
+    --grad: linear-gradient(90deg, #9615EA 0%, #0F63AC 100%);
+    --bg: #F7F9FF; --card: #FFFFFF; --soft: #EDF2FC; --chip: #E5EFFF; --line: #D8E2F5; --line2: #B9C5DE;
+    --ink: #140C3F; --body: #2B2B33; --muted: #5C6072; --faint: #8B93A8; --accent: #9615EA; --on-accent: #fff;
+    --ok: #0F9C6C; --ok-bg: rgba(15,156,108,.12); --bad: #D1344B; --bad-bg: rgba(209,52,75,.10);
+    --warn: #A15C07; --warn-bg: #FFF4DD; --warn-line: #F3DDA8;
+    --shadow: 0 8px 24px rgba(20,12,63,.10); --shadow-violet: 0 10px 28px rgba(150,21,234,.28);
+    --stage: radial-gradient(120% 90% at 50% 0%, #2a1a78 0%, #140C3F 55%, #0B0726 100%);
+    --font: "Nunito", "Segoe UI", Helvetica, Arial, sans-serif;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0B0726; --card: #140C3F; --soft: #1E1660; --chip: #1E1660; --line: #2F2778; --line2: #433A8A;
+    --ink: #FFFFFF; --body: #E4E1F7; --muted: #A9A6CB; --faint: #8E8AB5; --accent: #BE74FF;
+    --ok: #3DD6A0; --ok-bg: rgba(61,214,160,.14); --bad: #FF7F93; --bad-bg: rgba(255,127,147,.14);
+    --warn: #F3C969; --warn-bg: rgba(243,201,105,.10); --warn-line: rgba(243,201,105,.28);
+    --shadow: 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
   * { box-sizing: border-box; }
-  [hidden] { display: none !important; }   /* the hidden attribute must win over .row's display:flex */
-  body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
-         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 80px; }
-  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 28px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; margin-bottom: 16px; }
-  label.h { display: block; font-weight: 600; margin-bottom: 8px; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--body); font: 400 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { color: var(--ink); margin: 0; letter-spacing: -.01em; }
+  h1 { font-size: 28px; font-weight: 800; line-height: 1.25; }
+  h2 { font-size: 20px; font-weight: 800; }
+  h3 { font-size: 16px; font-weight: 800; }
+  p { margin: 0; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  a { color: var(--accent); }
+  svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -.125em; }
+
+  /* ---- header and tabs */
+  header { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+  .bar { max-width: 1440px; margin: 0 auto; padding: 0 24px; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; color: var(--ink); white-space: nowrap; }
+  .brand img { height: 30px; width: auto; display: block; }
+  .tabs { display: flex; gap: 4px; align-self: flex-end; }
+  .tab { border: 0; background: none; padding: 0 16px; height: 44px; font-weight: 700; font-size: 15px; color: var(--muted); border-bottom: 3px solid transparent; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--violet); }
+  .who { justify-self: end; display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 4px; border-radius: 999px; }
+  .who span.n { font-size: 13px; color: var(--faint); white-space: nowrap; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--grad); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+  main { max-width: 1440px; margin: 0 auto; padding: 32px 24px 72px; }
+
+  /* ---- shared pieces */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card + .card { margin-top: 16px; }
   .hint { color: var(--muted); font-size: 14px; }
-  textarea { width: 100%; min-height: 110px; resize: vertical; border: 1px solid var(--line); border-radius: 12px;
-             padding: 12px 14px; font: inherit; color: inherit; background: #fafafa; }
-  textarea:focus, .drop:focus-within { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,113,227,.15); }
-  .drop { border: 1.5px dashed #c7c7cc; border-radius: 12px; padding: 22px; text-align: center; cursor: pointer;
-          background: #fafafa; transition: border-color .15s; }
-  .drop.over { border-color: var(--blue); background: #f0f6ff; }
+  .cap { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 999px; padding: 11px 22px; font-weight: 800; background: var(--grad); color: #fff; box-shadow: var(--shadow-violet); transition: transform .12s, opacity .12s; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; box-shadow: none; }
+  .btn.sm { padding: 7px 16px; font-size: 14px; }
+  a.btn { text-decoration: none; }
+  .btn { white-space: nowrap; }
+  .btn.ghost { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .btn.plain { background: transparent; color: var(--ink); box-shadow: none; padding: 7px 10px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; background: var(--chip); color: var(--accent); white-space: nowrap; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); } .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .badge.neutral { background: var(--soft); color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .bar2 { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar2 i { display: block; height: 100%; width: 0; background: var(--grad); border-radius: 3px; transition: width .4s; }
+  input[type=text], textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px; }
+  :root[data-theme="dark"] input[type=text], :root[data-theme="dark"] textarea { background: #0B0726; border-color: var(--line2); }
+  textarea { min-height: 120px; resize: vertical; }
+  input:focus, textarea:focus, .drop:focus-visible, button:focus-visible { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px rgba(150,21,234,.22); }
+  .err { color: var(--bad); white-space: pre-wrap; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  /* ---- overview */
+  .hero { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .hero > div { flex: 1 1 320px; min-width: 0; }
+  .hero p { color: var(--muted); margin-top: 4px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+  .stat b { display: block; font-size: 28px; font-weight: 800; color: var(--ink); line-height: 1.2; }
+  .stat .l { font-weight: 700; color: var(--body); margin-top: 6px; }
+  .stat .s { font-size: 12px; color: var(--faint); }
+  .recent-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .jobs { list-style: none; margin: 0; padding: 0; }
+  .job { display: grid; grid-template-columns: 34px minmax(0, 1fr) 200px 56px 128px; gap: 16px; align-items: center; padding: 14px 4px; border-top: 1px solid var(--line); }
+  .job:first-child { border-top: 0; }
+  .thumb { width: 34px; height: 48px; border-radius: 6px; background: linear-gradient(180deg, #3b2a9a, #140C3F); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+  .job .nm { font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .mt { font-size: 13px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .st .sub { font-size: 12px; color: var(--faint); margin-top: 3px; }
+  .job .cost { color: var(--muted); font-size: 14px; text-align: right; }
+  .job .go { justify-self: end; }
+  .empty { text-align: center; padding: 28px 12px; }
+  .empty h2 { margin-bottom: 6px; }
+  .steps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; text-align: left; }
+  .steps3 > div { border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .num { width: 28px; height: 28px; border-radius: 50%; background: var(--grad); color: #fff; font-weight: 800; font-size: 13px; display: grid; place-items: center; flex: none; }
+
+  /* ---- make ads */
+  .mk { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 520px); gap: 28px; align-items: start; }
+  .mk h1 { margin-bottom: 2px; }
+  .mk .sub { color: var(--muted); margin-bottom: 18px; }
+  .step { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .step h2 { font-size: 18px; }
+  .drop { border: 1.5px dashed var(--line2); border-radius: 14px; padding: 30px 18px; text-align: center; cursor: pointer; background: var(--bg); transition: border-color .15s, background .15s; }
+  :root[data-theme="dark"] .drop { background: #1a1160; }
+  .drop.over { border-color: var(--violet); }
+  .drop .ico { width: 52px; height: 52px; border-radius: 14px; background: var(--grad); color: #fff; display: grid; place-items: center; margin: 0 auto 12px; font-size: 24px; }
+  .drop strong { color: var(--ink); font-size: 17px; display: block; }
   .drop input { display: none; }
-  .files { list-style: none; margin: 12px 0 0; padding: 0; }
-  .files li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 15px; }
-  .files li:first-child { border-top: 0; }
-  .files .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .files .meta { color: var(--muted); font-size: 13px; white-space: nowrap; }
-  .files button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; }
-  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; width: 110px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s; }
-  .btn { display: inline-block; border: 0; border-radius: 980px; padding: 12px 24px; font: inherit; font-weight: 600;
-         background: var(--blue); color: #fff; cursor: pointer; }
-  .btn:disabled { opacity: .45; cursor: default; }
-  .btn.ghost { background: transparent; color: var(--blue); padding: 8px 12px; }
-  .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
-  .err { color: var(--red); white-space: pre-wrap; }
-  .status { display: flex; align-items: center; gap: 12px; }
-  .spin { width: 18px; height: 18px; border: 2.5px solid var(--line); border-top-color: var(--blue); border-radius: 50%;
-          animation: spin .9s linear infinite; flex: none; }
+  .clips { list-style: none; margin: 0; padding: 0; }
+  .clips li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; background: var(--bg); }
+  :root[data-theme="dark"] .clips li { background: #0f0942; }
+  .clips .nm { flex: 1; min-width: 0; font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .clips .mt { color: var(--faint); font-size: 13px; white-space: nowrap; }
+  .clips button { border: 0; background: none; font-weight: 800; color: var(--accent); }
+  .checks { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 10px; }
+  .chk { display: inline-flex; gap: 7px; align-items: center; font-size: 14px; font-weight: 700; color: var(--body); }
+  .chk .tick { width: 20px; height: 20px; border-radius: 50%; background: var(--ok-bg); color: var(--ok); display: grid; place-items: center; font-size: 12px; }
+  .chk.warn .tick { background: var(--bad-bg); color: var(--bad); }
+  .ideas { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .idea { border: 0; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 700; background: var(--chip); color: var(--accent); }
+  .idea.used { opacity: .45; }
+  .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+  .choice { position: relative; text-align: left; border: 1.5px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--bg); }
+  :root[data-theme="dark"] .choice { background: #0f0942; }
+  .choice[aria-checked="true"] { border-color: var(--violet); box-shadow: 0 0 0 3px rgba(150,21,234,.18); background: var(--card); }
+  .choice b { display: block; color: var(--ink); font-size: 18px; font-weight: 800; }
+  .choice small { color: var(--muted); font-size: 13px; }
+  .choice .best { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; background: var(--chip); color: var(--accent); border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: 2px; }
+  .choice .mini { display: flex; gap: 4px; margin-bottom: 10px; height: 30px; align-items: flex-end; }
+  .choice .mini i { width: 15px; height: 100%; border-radius: 4px; background: var(--line2); }
+  .choice[aria-checked="true"] .mini i { background: var(--grad); }
+  .choice .len { height: 5px; border-radius: 3px; background: var(--line); margin-bottom: 10px; overflow: hidden; }
+  .choice .len i { display: block; height: 100%; background: var(--line2); border-radius: 3px; }
+  .choice[aria-checked="true"] .len i { background: var(--grad); }
+  .label { font-weight: 800; color: var(--ink); margin: 22px 0 2px; }
+  .fields { display: grid; grid-template-columns: 1fr 220px; gap: 12px; margin-top: 10px; }
+  .fields label { font-size: 13px; font-weight: 800; color: var(--muted); display: block; margin-bottom: 4px; }
+  .make-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+  .make-row .sum { color: var(--muted); font-size: 14px; flex: 1 1 220px; }
+  .safe { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+  .safe .i { color: var(--blue); }
+  :root[data-theme="dark"] .safe .i { color: #6FB2F5; }
+
+  /* ---- preview column */
+  .pv { position: sticky; top: 84px; }
+  .pvhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pill { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 700; color: var(--body); }
+  .pill[aria-selected="true"] { background: var(--grad); border-color: transparent; color: #fff; }
+  .stage { background: var(--stage); border-radius: 22px; padding: 28px 20px; display: grid; place-items: center; box-shadow: var(--shadow); }
+  .phone { position: relative; width: min(100%, 250px); aspect-ratio: 9 / 16; border-radius: 26px; background: #0B0726; border: 1px solid rgba(255,255,255,.16); overflow: hidden; box-shadow: 0 18px 48px rgba(0,0,0,.4); }
+  .phone video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  .ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 22px; color: #fff; gap: 6px; background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)); }
+  .ph .ic { width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.12); display: grid; place-items: center; font-size: 20px; margin-bottom: 6px; }
+  .ph b { font-size: 15px; } .ph small { color: rgba(255,255,255,.72); font-size: 13px; }
+  .ctl { margin-top: 14px; border-radius: 16px; background: var(--stage); padding: 12px 16px 10px; color: #fff; box-shadow: var(--shadow); }
+  .ctl .t { display: flex; align-items: center; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.8); }
+  .ctl input[type=range] { flex: 1; accent-color: #BE74FF; height: 4px; }
+  .ctl .b { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 6px; }
+  .cb { border: 0; background: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; font-weight: 800; opacity: .9; }
+  .cb:hover { background: rgba(255,255,255,.12); }
+  .cb.on { background: rgba(255,255,255,.2); }
+  .cb.big { width: 46px; height: 46px; background: var(--grad); font-size: 20px; opacity: 1; }
+  .cb.txt { font-size: 13px; width: 42px; }
+  .ctl[data-off="1"] { opacity: .55; pointer-events: none; }
+
+  /* ---- progress */
+  .prog h2 { font-size: 22px; }
+  .prog .big { font-size: 30px; font-weight: 800; color: var(--ink); }
+  .plist { list-style: none; margin: 16px 0 0; padding: 0; }
+  .plist li { display: flex; align-items: center; gap: 12px; padding: 7px 0; color: var(--faint); font-weight: 700; }
+  .plist li.done { color: var(--body); } .plist li.now { color: var(--ink); }
+  .plist .pi { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line2); display: grid; place-items: center; font-size: 12px; }
+  .plist li.done .pi { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+  .plist li.now .pi { border-color: var(--violet); border-top-color: transparent; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .chip { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
-          padding: 3px 9px; border-radius: 980px; background: #eef1f5; color: #3a3a3c; }
-  .chip.ok { background: #e6f4ea; color: var(--green); }  .chip.bad { background: #fdecea; color: var(--red); }
-  .ad { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
-  .ad video { width: 200px; aspect-ratio: 9 / 16; background: #000; border-radius: 12px; }
-  .ad h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
-  .ad p { margin: 8px 0; }
-  .ad .copy { white-space: pre-wrap; background: #fafafa; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
-  .ad .acts { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
-  a.dl { color: var(--blue); font-weight: 600; text-decoration: none; }
-  .check { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
-  .check.look { background: var(--amber-bg); border-color: #f3e2b6; }
-  .check .head { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
-  .check.look .head { color: var(--amber); }
+  .confirm { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--warn-bg); border: 1px solid var(--warn-line); }
+
+  /* ---- results */
+  .done-h { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
+  .done-h h1 span { color: var(--accent); }
+  .adlist { margin-top: 16px; padding: 0; overflow: hidden; }
+  .adlist .tip { padding: 12px 18px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .adrow { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .adrow:last-child { border-bottom: 0; }
+  .adrow[aria-selected="true"] { background: var(--soft); box-shadow: inset 3px 0 0 var(--violet); }
+  .adrow .th { width: 52px; height: 74px; border-radius: 8px; background: #0B0726; overflow: hidden; }
+  .adrow .th video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .adrow .nm { font-weight: 800; color: var(--ink); }
+  .adrow .nm small { color: var(--faint); font-weight: 700; margin-left: 6px; }
+  .adrow .why { font-size: 14px; color: var(--muted); }
+  .adrow .tag { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+  .claims { background: var(--warn-bg); border: 1px solid var(--warn-line); }
+  .claims h3 { color: var(--warn); display: flex; gap: 8px; align-items: center; }
+  .claim { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--warn-line); }
+  .claim:first-of-type { border-top: 0; }
+  .claim input { width: 20px; height: 20px; accent-color: var(--violet); flex: none; margin-top: 3px; }
+  .claim b { color: var(--ink); }
+  .copy { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .check { margin-top: 14px; }
+  .check.look { background: var(--warn-bg); border-color: var(--warn-line); }
+  .check .head { font-weight: 800; color: var(--ink); margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+  .check.look .head { color: var(--warn); }
   .scores { display: flex; flex-wrap: wrap; gap: 6px; }
-  .score { font-size: 12px; padding: 3px 9px; border-radius: 980px; background: #eef1f5; color: #3a3a3c; white-space: nowrap; }
-  .score.s1, .score.s2 { background: #fdecea; color: var(--red); }
-  .score.s3 { background: #fff1d6; color: var(--amber); }
-  .score.s4, .score.s5 { background: #e6f4ea; color: var(--green); }
-  .probs { margin: 10px 0 0; padding-left: 18px; font-size: 14px; }
-  .probs li { margin: 6px 0; }
-  .fb { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-  .fb .fbrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  .fb .fbrow:first-child { margin-top: 0; }
-  .fb textarea { min-height: 60px; margin-top: 8px; font-size: 15px; }
-  .pick { border: 1px solid var(--line); background: #fff; border-radius: 980px; padding: 6px 16px; font: inherit; font-size: 14px;
-          font-weight: 600; cursor: pointer; color: var(--ink); }
-  .pick.on { background: var(--green); border-color: var(--green); color: #fff; }
-  .pick.on.bad { background: var(--red); border-color: var(--red); }
-  .btn.small { padding: 7px 16px; font-size: 14px; }
-  .claims { background: var(--amber-bg); border: 1px solid #f3e2b6; border-radius: 12px; padding: 14px 18px; }
-  .claims h3 { margin: 0 0 6px; font-size: 16px; color: var(--amber); }
-  .claims ul { margin: 0; padding-left: 18px; }
-  .recent { list-style: none; margin: 0; padding: 0; }
-  .recent li { padding: 12px 0; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; cursor: pointer; }
-  .recent li:first-child { border-top: 0; }
-  .recent .when { color: var(--muted); font-size: 13px; white-space: nowrap; min-width: 92px; }
-  .recent .what { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .recent .brief { color: var(--muted); }
-  h2 { font-size: 20px; margin: 32px 0 10px; letter-spacing: -0.01em; }
-  details summary { cursor: pointer; color: var(--muted); }
-  details.lib { border-top: 1px solid var(--line); padding: 12px 0; }
-  details.lib:first-child { border-top: 0; }
-  details.lib summary { color: var(--ink); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-  ol.lessons { margin: 8px 0 0; padding-left: 20px; font-size: 15px; }
-  ol.lessons li { margin: 8px 0; }
-  @media (max-width: 560px) { .ad { grid-template-columns: 1fr; } .ad video { width: 100%; max-width: 260px; } }
+  .score { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .score.s1, .score.s2 { background: var(--bad-bg); color: var(--bad); } .score.s3 { background: var(--warn-bg); color: var(--warn); }
+  .score.s4, .score.s5 { background: var(--ok-bg); color: var(--ok); }
+  .probs { margin: 10px 0 0; padding-left: 18px; font-size: 14px; } .probs li { margin: 6px 0; }
+  .fb textarea { min-height: 64px; margin-top: 10px; font-size: 14px; }
+  .pick { border: 1px solid var(--line2); background: transparent; border-radius: 999px; padding: 6px 18px; font-size: 14px; font-weight: 800; color: var(--body); }
+  .pick.on { background: var(--ok); border-color: var(--ok); color: #fff; } .pick.on.bad { background: var(--bad); border-color: var(--bad); }
+  :root[data-theme="dark"] .pick.on { color: #07261b; } :root[data-theme="dark"] .pick.on.bad { color: #2d0610; }
+  details > summary { cursor: pointer; color: var(--muted); font-weight: 700; }
+
+  /* ---- settings */
+  .set { max-width: 760px; margin: 0 auto; }
+  .set h1 { margin-bottom: 2px; } .set .sub { color: var(--muted); margin-bottom: 20px; }
+  .set .card h2 { margin-bottom: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; margin-top: 10px; }
+  .seg button { border: 0; background: none; border-radius: 999px; padding: 6px 18px; font-weight: 800; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--grad); color: #fff; }
+  .lib { border-top: 1px solid var(--line); padding: 12px 0; } .lib:first-child { border-top: 0; }
+  ol.lessons { margin: 8px 0 0; padding-left: 20px; font-size: 14px; } ol.lessons li { margin: 8px 0; }
+
+  /* ---- first visit */
+  .veil { position: fixed; inset: 0; background: rgba(11,7,38,.72); display: grid; place-items: center; z-index: 50; padding: 16px; }
+  .veil .card { max-width: 420px; width: 100%; box-shadow: var(--shadow); }
+
+  @media (max-height: 820px) { .phone { width: min(100%, 210px); } .stage { padding: 20px 16px; } }
+  @media (max-width: 1080px) { .mk { grid-template-columns: 1fr; } .pv { position: static; } .stats { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 760px) {
+    .bar { grid-template-columns: auto 1fr auto; padding: 0 12px; gap: 8px; } .brand span { display: none; }
+    .tabs { justify-self: center; } .tab { padding: 0 10px; font-size: 14px; } .who span.n { display: none; }
+    main { padding: 20px 14px 56px; }
+    .job { grid-template-columns: 34px minmax(0, 1fr) auto; } .job .cost, .job .st { grid-column: 2 / 4; text-align: left; } .job .go { grid-column: 2 / 4; justify-self: start; }
+    .choices, .steps3 { grid-template-columns: 1fr; } .fields { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Video Agent</h1>
-  <p class="sub">Upload raw clips, say what you want, and Gemini plans and cuts the ads.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></symbol>
+  <symbol id="i-back15" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-fwd15" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></symbol>
+  <symbol id="i-full" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+</svg>
 
-  <section id="form" class="card">
-    <label class="h">Clips</label>
-    <div class="drop" id="drop" tabindex="0">
-      <input type="file" id="file" multiple accept="video/mp4,video/quicktime,video/x-matroska,video/webm,.mp4,.mov,.mkv,.webm">
-      <div><strong>Drop clips here</strong> or click to choose</div>
-      <div class="hint">MP4 or MOV from a phone. Up to 10 clips and 10 minutes of footage in total, under 4 GB each.</div>
-    </div>
-    <ul class="files" id="files"></ul>
-
-    <label class="h" for="brief" style="margin-top:22px">What do you want?</label>
-    <textarea id="brief" maxlength="2000" placeholder="For example: Three 30-second ads for cold traffic about why common indicators lag. Keep the whiteboard moment. One should open with the question he asks near the end."></textarea>
-    <div class="hint">Gemini decides the rest: how many ads, how long, which parts to use, the headline, callouts and ad copy. Leave it blank and it uses its own judgement.</div>
-
-    <div class="row">
-      <button class="btn" id="go" disabled>Make ads</button>
-      <span class="hint" id="total"></span>
-    </div>
-    <p class="err" id="formErr"></p>
-  </section>
-
-  <section id="progress" class="card" hidden>
-    <div class="status"><div class="spin" id="spinner"></div><div><strong id="pTitle">Uploading</strong><div class="hint" id="pText"></div></div></div>
-    <ul class="files" id="pFiles"></ul>
-    <p class="err" id="pErr"></p>
-    <div class="row" id="pActs" hidden><button class="btn ghost" id="again">Start another</button></div>
-  </section>
-
-  <section id="result" hidden></section>
-
-  <h2>Recent</h2>
-  <div class="card"><ul class="recent" id="recent"><li class="hint">Nothing yet.</li></ul></div>
-
-  <h2>Library</h2>
-  <div class="card">
-    <p class="hint" id="libLine" style="margin:0">Loading what the agent has studied.</p>
-    <button class="btn ghost" id="libShow" hidden style="margin-top:8px;padding-left:0">Show the lessons</button>
-    <div id="lib"></div>
+<header>
+  <div class="bar">
+    <div class="brand"><img id="logo" alt="" width="30" height="30"><span>Ad Cutter</span></div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-tab="overview">Overview</button>
+      <button class="tab" role="tab" data-tab="make">Make ads</button>
+      <button class="tab" role="tab" data-tab="settings">Settings</button>
+    </nav>
+    <button class="who" id="who" title="Change your name"><span class="n" id="whoName"></span><span class="avatar" id="avatar">?</span></button>
   </div>
+</header>
+
+<main>
+  <!-- ======================================================= Overview -->
+  <section id="v-overview" hidden>
+    <div class="hero">
+      <div><h1 id="greeting">Hello</h1><p>Upload a video of you talking, say what you want, and get finished Meta ads back.</p></div>
+      <button class="btn" data-go="make"><svg class="i"><use href="#i-plus"/></svg>Make new ads</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="card" id="recentCard">
+      <div class="recent-h"><h2>Recent videos</h2><span class="hint">Everyone on the team</span></div>
+      <ul class="jobs" id="recent"></ul>
+    </div>
+  </section>
+
+  <!-- ======================================================= Make ads -->
+  <section id="v-make" hidden>
+    <div class="mk">
+      <div id="left">
+        <!-- the form -->
+        <div id="mkForm">
+          <h1>Make new ads</h1>
+          <p class="sub">Three steps. The AI does all the editing.</p>
+
+          <div class="card">
+            <div class="step"><span class="num">1</span><h2>Add your video</h2></div>
+            <div class="drop" id="drop" tabindex="0">
+              <input type="file" id="file" multiple accept="video/mp4,video/quicktime,video/x-matroska,video/webm,.mp4,.mov,.mkv,.webm">
+              <div class="ico"><svg class="i"><use href="#i-upload"/></svg></div>
+              <strong>Drag your video here, or click to choose</strong>
+              <div class="hint">Vertical phone videos (.mov or .mp4) of you talking to the camera. Up to 10 clips, 10 minutes of footage in total.</div>
+            </div>
+            <ul class="clips" id="clips" hidden></ul>
+            <div class="row" id="addMore" hidden style="margin-top:4px"><button class="btn ghost sm" id="addMoreBtn"><svg class="i"><use href="#i-plus"/></svg>Add another clip</button><span class="hint">Clips are joined in this order.</span></div>
+            <div class="checks" id="checks"></div>
+            <p class="err" id="fileErr"></p>
+          </div>
+
+          <div class="card">
+            <div class="step"><span class="num">2</span><h2>Tell the AI what you want</h2></div>
+            <p class="hint" style="margin:-6px 0 12px">Write it like you'd brief an editor. Plain words are perfect.</p>
+            <textarea id="brief" maxlength="1900" placeholder="Describe the ads you want. For example: short ads for traders who've never heard of us, opening with the part about indicators lagging."></textarea>
+            <div class="ideas" id="ideas"><span class="hint">Need ideas? Add one:</span></div>
+            <div class="label">How many ads?</div><div class="hint">More ads means more variety to test.</div>
+            <div class="choices" id="adsChoices" role="radiogroup" aria-label="How many ads"></div>
+            <div class="label">How long should each one be?</div><div class="hint">Shorter ads hold attention. Longer ones can tell the whole story.</div>
+            <div class="choices" id="secChoices" role="radiogroup" aria-label="How long"></div>
+            <div class="label">End screen <span class="hint" style="font-weight:600">· optional</span></div>
+            <div class="hint">Shown for the last <span id="ctaSecs">3</span> seconds of every ad. Your usual message is filled in; change it for this batch if you like.</div>
+            <div class="fields"><div><label for="ctaLine">Message</label><input type="text" id="ctaLine" maxlength="70"></div><div><label for="ctaBtn">Button</label><input type="text" id="ctaBtn" maxlength="28"></div></div>
+          </div>
+
+          <div class="card">
+            <div class="step"><span class="num">3</span><h2>Make your ads</h2></div>
+            <div class="make-row"><span class="sum" id="sum"></span><button class="btn" id="go" disabled><svg class="i"><use href="#i-sparkles"/></svg>Make my ads</button></div>
+            <p class="err" id="formErr" style="margin-top:10px"></p>
+            <div class="safe"><svg class="i"><use href="#i-shield"/></svg>Nothing is posted anywhere. You see every ad before it goes live. <span class="hint">(Ctrl or ⌘ + Enter)</span></div>
+          </div>
+        </div>
+
+        <!-- uploading / working -->
+        <div id="mkWork" class="card prog" hidden>
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div><h2 id="wTitle">Making your ads…</h2><p class="hint" id="wLabel"></p></div>
+            <div class="big" id="wPct">0%</div>
+          </div>
+          <div class="bar2" style="margin-top:14px"><i id="wBar"></i></div>
+          <p class="hint" id="wText" style="margin-top:12px"></p>
+          <ul class="files" id="wFiles" style="list-style:none;padding:0;margin:10px 0 0"></ul>
+          <ul class="plist" id="wSteps"></ul>
+          <p class="err" id="wErr" style="margin-top:10px"></p>
+          <div class="row" style="margin-top:18px" id="wActs">
+            <button class="btn ghost sm" id="wCancel">Cancel</button>
+          </div>
+          <div class="confirm" id="wConfirm" hidden>
+            <strong>Stop making these ads?</strong>
+            <p class="hint" style="margin:4px 0 10px">The progress so far will be lost. A step that is already running finishes first, which can take a minute or two.</p>
+            <div class="row"><button class="btn ghost sm" id="wKeep">Keep going</button><button class="btn sm" id="wStop">Stop</button></div>
+          </div>
+        </div>
+
+        <!-- stopped / failed -->
+        <div id="mkEnd" class="card" hidden>
+          <h2 id="eTitle"></h2><p class="err" id="eText" style="margin-top:6px"></p><p class="hint" id="eHint" style="margin-top:6px"></p>
+          <div class="row" style="margin-top:16px"><button class="btn" id="eAgain">Try again</button><button class="btn plain" id="eNew">Start something new</button></div>
+        </div>
+
+        <!-- ready -->
+        <div id="mkDone" hidden>
+          <div class="done-h">
+            <div><h1 id="dTitle"></h1><p class="hint" style="margin-top:4px">Watch them, download the ones you like, and tell us what is right and what is not.</p></div>
+            <button class="btn plain" id="dMore">Make more ads</button>
+          </div>
+          <div class="row" style="margin-top:14px"><button class="btn" id="dAll"><svg class="i"><use href="#i-download"/></svg>Download all</button><a class="btn ghost sm" id="dNotes" hidden>Review notes</a></div>
+          <div class="card adlist" id="adList"></div>
+          <div id="dSel"></div>
+          <div class="card claims" id="claims" hidden></div>
+          <div id="dInfo"></div>
+        </div>
+      </div>
+
+      <!-- the preview column -->
+      <aside class="pv" id="pv">
+        <div class="pvhead"><span class="cap">Preview</span><span class="cap" id="pvMeta"></span></div>
+        <div class="pills" id="adTabs" role="tablist" hidden></div>
+        <div class="stage"><div class="phone">
+          <video id="vid" playsinline preload="metadata" hidden></video>
+          <div class="ph" id="ph"><div class="ic"><svg class="i"><use href="#i-film"/></svg></div><b id="phT">Your ad will appear here</b><small id="phS">Add a video to see it.</small></div>
+        </div></div>
+        <div class="ctl" id="ctl" data-off="1">
+          <div class="t"><span id="tNow">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position"><span id="tAll">0:00</span></div>
+          <div class="b">
+            <button class="cb txt" id="spd" title="Speed">1x</button>
+            <button class="cb" id="back" title="Back 15 seconds"><svg class="i"><use href="#i-back15"/></svg></button>
+            <button class="cb big" id="pp" title="Play"><svg class="i"><use href="#i-play"/></svg></button>
+            <button class="cb" id="fwd" title="Forward 15 seconds"><svg class="i"><use href="#i-fwd15"/></svg></button>
+            <button class="cb" id="loop" title="Loop"><svg class="i"><use href="#i-repeat"/></svg></button>
+            <button class="cb" id="mute" title="Sound"><svg class="i"><use href="#i-vol"/></svg></button>
+            <button class="cb" id="full" title="Full screen"><svg class="i"><use href="#i-full"/></svg></button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ======================================================= Settings -->
+  <section id="v-settings" hidden>
+    <div class="set">
+      <h1>Settings</h1><p class="sub">Changes save automatically.</p>
+      <div class="card"><h2>Your name</h2><p class="hint">Shown next to the videos you make, so the team can tell whose is whose. Stored only in this browser.</p>
+        <input type="text" id="nameIn" maxlength="40" style="margin-top:12px;max-width:320px" placeholder="For example: Rob B.">
+        <div class="seg" id="theme" role="group" aria-label="Appearance"><button data-t="auto">Auto</button><button data-t="light">Light</button><button data-t="dark">Dark</button></div>
+      </div>
+      <div class="card"><h2>AI spending</h2><p class="hint">The whole team shares one AI account. New videos pause if this month's AI cost reaches its limit.</p>
+        <div id="spend" style="margin-top:12px"></div>
+      </div>
+      <div class="card"><h2>Reference videos</h2><p class="hint">Videos about the craft of editing that the AI has watched, and whose lessons it keeps. It studies them while no ads are being made.</p>
+        <p class="hint" id="libLine" style="margin-top:12px">Loading what the agent has studied.</p>
+        <button class="btn ghost sm" id="libShow" hidden style="margin-top:10px">Show the lessons</button>
+        <div id="lib"></div>
+      </div>
+    </div>
+  </section>
 </main>
+
+<div class="veil" id="veil" hidden>
+  <div class="card"><h2>Welcome to Ad Cutter</h2><p class="hint" style="margin:6px 0 14px">What should we call you? Your name is shown next to the videos you make. It stays in this browser, and there is no password.</p>
+    <input type="text" id="veilIn" maxlength="40" placeholder="Your name">
+    <div class="row" style="margin-top:16px"><button class="btn" id="veilGo">Continue</button><button class="btn plain" id="veilSkip">Skip</button></div>
+  </div>
+</div>
 
 <script>
 (() => {
+  "use strict";
   const BASE = "/" + location.pathname.split("/")[1];
   const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const icon = (n) => `<svg class="i"><use href="#i-${n}"/></svg>`;
+  const store = {
+    get(k, d = "") { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private window: fine */ } },
+  };
   const MAX_CLIPS = 10, MAX_BYTES = 4 * 1024 ** 3, MAX_MINUTES = 10;
-  let files = [];            // {file, seconds}
-  let pollTimer = null, gen = 0, watching = null;   // one polling loop at a time; older loops exit on their next tick
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  $("logo").src = BASE + "/assets/vp-mark.png";
 
-  // ---------------------------------------------------------------- picking clips
+  const fmtTime = (s) => { if (s == null || !isFinite(s)) return "0:00"; const t = Math.max(0, Math.round(s)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+  const fmtSize = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : Math.round(b / 1024 ** 2) + " MB";
+  const words = (n) => ({ 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six" }[n] || String(n));
+
+  async function api(method, url, body) {
+    const res = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* no body */ }
+    if (!res.ok) {
+      const d = data && data.detail;
+      throw new Error(typeof d === "string" ? d : (Array.isArray(d) ? "Please check what you entered and try again." : `Request failed (${res.status})`));
+    }
+    return data;
+  }
+
+  // ------------------------------------------------------------------ name and theme
+  let name = store.get("va.name");
+  const initials = (n) => (n.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("") || "?").toUpperCase();
+  function showName() {
+    $("whoName").textContent = name; $("avatar").textContent = name ? initials(name) : "?";
+    if (document.activeElement !== $("nameIn")) $("nameIn").value = name;
+    renderGreeting();
+  }
+  function setName(n) { name = n.trim().replace(/\s+/g, " ").slice(0, 40); store.set("va.name", name); showName(); }
+  const askName = () => { $("veilIn").value = name; $("veil").hidden = false; $("veilIn").focus(); };
+  $("who").onclick = askName;
+  const closeVeil = (save) => { if (save) setName($("veilIn").value); store.set("va.asked", "1"); $("veil").hidden = true; };
+  $("veilGo").onclick = () => closeVeil(true); $("veilSkip").onclick = () => closeVeil(false);
+  $("veilIn").addEventListener("keydown", (e) => { if (e.key === "Enter") closeVeil(true); });
+  $("nameIn").addEventListener("input", () => setName($("nameIn").value));
+
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  function applyTheme() {
+    const t = store.get("va.theme", "auto");
+    document.documentElement.dataset.theme = t === "auto" ? (media.matches ? "dark" : "light") : t;
+    $("theme").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+  }
+  $("theme").querySelectorAll("button").forEach((b) => b.onclick = () => { store.set("va.theme", b.dataset.t); applyTheme(); });
+  media.addEventListener("change", applyTheme);
+  applyTheme();
+
+  function renderGreeting() {
+    const h = new Date().getHours(), part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+    const first = name.split(" ")[0];
+    $("greeting").textContent = `Good ${part}${first ? ", " + first : ""}`;
+  }
+
+  // ------------------------------------------------------------------ tabs
+  let tab = "overview";
+  function show(next) {
+    tab = next;
+    for (const t of ["overview", "make", "settings"]) $("v-" + t).hidden = t !== next;
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === next)));
+    store.set("va.tab", next);
+    if (next === "overview") loadOverview();
+    if (next === "settings") loadSettings();
+    if (next !== "make") pauseVideo();
+  }
+  const running = () => !!watching && (!job || !["ready", "failed", "cancelled"].includes(job.status));      // uploading or being made
+  document.querySelectorAll(".tab").forEach((b) => b.onclick = () => goTab(b.dataset.tab));      // switching tabs never resets what you were doing
+  document.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => { if (!running()) newBatch(false); goTab(b.dataset.go); });
+  function goTab(t) { if (t !== "make" && UUID.test(location.hash.slice(1))) history.replaceState(null, "", location.pathname + "#" + t); else if (t === "overview" || t === "settings") history.replaceState(null, "", location.pathname + "#" + t); show(t); }
+
+  // ------------------------------------------------------------------ overview
+  const when = (iso) => {
+    const d = new Date(iso), now = new Date(), same = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return same ? `Today, ${time}` : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  let overviewData = null;
+
+  async function loadOverview() {
+    renderGreeting();
+    try { overviewData = await api("GET", `${BASE}/api/overview`); applyDefaults(); } catch (e) { overviewData = overviewData || { stats: null, spend: null }; }
+    const s = overviewData.stats;
+    const card = (v, l, sub) => `<div class="stat"><b>${v}</b><div class="l">${l}</div><div class="s">${sub}</div></div>`;
+    $("stats").innerHTML = card(s ? s.videos : "–", "Videos uploaded", "this month") + card(s ? s.ads : "–", "Ads made", "ready to post") +
+      card(s ? "$" + s.cost.toFixed(2) : "–", "AI cost", "this month") + card(s ? s.wait_minutes + " min" : "–", "Average wait", "from upload to finished ads");
+    loadRecent();
+  }
+
+  function badgeFor(j) {
+    if (j.status === "working" || j.status === "queued") {
+      const pct = j.status === "queued" ? "in line" : j.percent + "%";
+      return `<span class="badge"><span class="dot"></span>Making ads · ${esc(pct)}</span><div class="bar2" style="margin-top:6px"><i style="width:${j.status === "queued" ? 3 : j.percent}%"></i></div>`;
+    }
+    if (j.status === "ready" && j.ads_ready > 0 && j.ads_ready === j.ads_planned) return `<span class="badge ok"><span class="dot"></span>${j.ads_ready} ad${j.ads_ready > 1 ? "s" : ""} ready</span>`;
+    if (j.status === "ready") return `<span class="badge bad"><span class="dot"></span>Needs a quick look</span><div class="sub">${j.ads_ready} of ${j.ads_planned} ads finished</div>`;
+    if (j.status === "failed") return `<span class="badge bad"><span class="dot"></span>Needs a quick look</span><div class="sub">${esc((j.error || "Something went wrong").slice(0, 70))}</div>`;
+    if (j.status === "cancelled") return `<span class="badge neutral"><span class="dot"></span>Stopped</span>`;
+    return `<span class="badge neutral">${esc(j.status)}</span>`;
+  }
+  const actionFor = (j) => j.status === "ready" && j.ads_ready ? "See ads" : (j.status === "working" || j.status === "queued") ? "View progress" : "Try again";
+
+  async function loadRecent() {
+    let data;
+    try { data = await api("GET", `${BASE}/api/jobs`); } catch (e) { return; }
+    const list = data.jobs;
+    if (!list.length) {
+      $("recent").innerHTML = "";
+      $("recentCard").innerHTML = `<div class="empty"><h2>Turn one video into ready-to-post ads</h2><p class="hint">You talk to the camera. The AI picks the best moments, adds captions, a headline and the end screen, and hands you finished ads.</p>` +
+        `<div class="steps3"><div><span class="num">1</span><h3 style="margin-top:8px">Upload a video</h3><p class="hint">Any vertical phone video of you talking to the camera.</p></div>` +
+        `<div><span class="num">2</span><h3 style="margin-top:8px">Say what you want</h3><p class="hint">A sentence or two, like you'd brief an editor.</p></div>` +
+        `<div><span class="num">3</span><h3 style="margin-top:8px">Download your ads</h3><p class="hint">Captions, headline and end card are already on.</p></div></div></div>`;
+      return;
+    }
+    if (!$("recent")) return;
+    $("recent").innerHTML = list.map((j) =>
+      `<li class="job"><div class="thumb"></div><div style="min-width:0"><div class="nm">${esc(j.label)}</div><div class="mt">${j.by ? esc(j.by) + " · " : ""}${esc(when(j.created_at))}${j.brief ? " · " + esc(j.brief) : ""}</div></div>` +
+      `<div class="st">${badgeFor(j)}</div><div class="cost">${j.cost_usd ? "$" + j.cost_usd.toFixed(2) : ""}</div>` +
+      `<div class="go"><button class="btn ghost sm" data-id="${esc(j.job_id)}" data-act="${esc(actionFor(j))}">${esc(actionFor(j))}</button></div></li>`).join("");
+    $("recent").querySelectorAll("button").forEach((b) => b.onclick = () => openJob(b.dataset.id, b.dataset.act === "Try again"));
+  }
+
+  // ------------------------------------------------------------------ the form
+  let files = [];          // { file, seconds, vertical }
+  let ads = 3, secs = 40;
+  const IDEAS = ["For people who've never heard of us", "Lead with the strongest moment", "Friendly, not salesy", "Keep it under 30 seconds"];
+  let usedIdeas = new Set();
   const drop = $("drop"), input = $("file");
+
+  function applyDefaults() {
+    const d = (overviewData && overviewData.defaults) || {};
+    if (!$("ctaLine").value && d.cta_line) $("ctaLine").value = d.cta_line;
+    if (!$("ctaBtn").value && d.cta_button) $("ctaBtn").value = d.cta_button;
+    if (d.cta_seconds) $("ctaSecs").textContent = d.cta_seconds;
+  }
+
+  function renderChoices() {
+    const adsDefs = [[1, "One focused cut", 1], [3, "Three different angles", 3], [5, "The full test batch", 5]];
+    $("adsChoices").innerHTML = adsDefs.map(([n, sub, bars]) =>
+      `<button class="choice" role="radio" data-v="${n}" aria-checked="${ads === n}"><div class="mini">${"<i></i>".repeat(bars)}</div><b>${n} ad${n > 1 ? "s" : ""}${n === 3 ? '<span class="best">Best for most</span>' : ""}</b><small>${sub}</small></button>`).join("");
+    const secDefs = [[20, "Short", 33], [40, "Medium", 66], [60, "Long", 100]];
+    $("secChoices").innerHTML = secDefs.map(([n, t, w]) =>
+      `<button class="choice" role="radio" data-v="${n}" aria-checked="${secs === n}"><div class="len"><i style="width:${w}%"></i></div><b>${n} sec${n === 40 ? '<span class="best">Best for most</span>' : ""}</b><small>${t}</small></button>`).join("");
+    $("adsChoices").querySelectorAll(".choice").forEach((b) => b.onclick = () => { ads = +b.dataset.v; renderChoices(); updateForm(); });
+    $("secChoices").querySelectorAll(".choice").forEach((b) => b.onclick = () => { secs = +b.dataset.v; renderChoices(); updateForm(); });
+  }
+  function renderIdeas() {
+    $("ideas").innerHTML = `<span class="hint">Need ideas? Add one:</span>` + IDEAS.map((t, i) => `<button class="idea${usedIdeas.has(i) ? " used" : ""}" data-i="${i}">+ ${esc(t)}</button>`).join("");
+    $("ideas").querySelectorAll(".idea").forEach((b) => b.onclick = () => {
+      const i = +b.dataset.i; if (usedIdeas.has(i)) return;
+      usedIdeas.add(i);
+      const cur = $("brief").value.trim(), t = IDEAS[i];
+      $("brief").value = ((cur ? cur + (/[.!?]$/.test(cur) ? " " : ". ") : "") + t + ".").slice(0, 1900);
+      renderIdeas(); $("brief").focus();
+    });
+  }
+
+  function readMeta(file) {
+    return new Promise((resolve) => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => { const r = { seconds: isFinite(v.duration) ? v.duration : null, vertical: v.videoHeight >= v.videoWidth }; URL.revokeObjectURL(v.src); resolve(r); };
+      v.onerror = () => { URL.revokeObjectURL(v.src); resolve({ seconds: null, vertical: true }); };
+      v.src = URL.createObjectURL(file);
+    });
+  }
+  function addFiles(list) {
+    for (const f of list) {
+      if (files.length >= MAX_CLIPS) { $("fileErr").textContent = `Up to ${MAX_CLIPS} clips per batch.`; break; }
+      if (files.some((x) => x.file.name === f.name && x.file.size === f.size)) continue;
+      const entry = { file: f, seconds: null, vertical: true };
+      files.push(entry);
+      readMeta(f).then((m) => { Object.assign(entry, m); updateForm(); });
+    }
+    updateForm();
+  }
   drop.addEventListener("click", () => input.click());
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
   input.addEventListener("change", () => { addFiles(input.files); input.value = ""; });
+  $("addMoreBtn").onclick = () => input.click();
 
-  function addFiles(list) {
-    for (const f of list) {
-      if (files.length >= MAX_CLIPS) { $("formErr").textContent = `Up to ${MAX_CLIPS} clips per job.`; break; }
-      if (files.some((x) => x.file.name === f.name && x.file.size === f.size)) continue;
-      const entry = { file: f, seconds: null };
-      files.push(entry);
-      readDuration(f).then((s) => { entry.seconds = s; renderFiles(); });
-    }
-    renderFiles();
-  }
-
-  function readDuration(file) {
-    return new Promise((resolve) => {
-      const v = document.createElement("video");
-      v.preload = "metadata";
-      v.onloadedmetadata = () => { URL.revokeObjectURL(v.src); resolve(isFinite(v.duration) ? v.duration : null); };
-      v.onerror = () => { URL.revokeObjectURL(v.src); resolve(null); };
-      v.src = URL.createObjectURL(file);
-    });
-  }
-
-  const fmtSize = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : Math.round(b / 1024 ** 2) + " MB";
-  const fmtTime = (s) => { if (s == null) return ""; const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-  function renderFiles() {
-    $("files").innerHTML = files.map((x, i) =>
-      `<li><span class="name">${esc(x.file.name)}</span><span class="meta">${fmtTime(x.seconds)} · ${fmtSize(x.file.size)}</span>` +
-      `<button title="Remove" data-i="${i}">×</button></li>`).join("");
-    $("files").querySelectorAll("button").forEach((b) => b.onclick = () => { files.splice(+b.dataset.i, 1); renderFiles(); });
-    const secs = files.reduce((a, x) => a + (x.seconds || 0), 0);
-    const tooBig = files.find((x) => x.file.size > MAX_BYTES);
+  let clipUrl = null;
+  function updateForm() {
+    drop.hidden = files.length > 0; $("clips").hidden = !files.length; $("addMore").hidden = !files.length;
+    $("clips").innerHTML = files.map((x, i) => `<li><span class="nm">${esc(x.file.name)}</span><span class="mt">${x.seconds != null ? fmtTime(x.seconds) + " · " : ""}${fmtSize(x.file.size)}</span><button data-i="${i}">Remove</button></li>`).join("");
+    $("clips").querySelectorAll("button").forEach((b) => b.onclick = () => { files.splice(+b.dataset.i, 1); updateForm(); });
+    const total = files.reduce((a, x) => a + (x.seconds || 0), 0);
+    const notVertical = files.filter((x) => !x.vertical), tooBig = files.find((x) => x.file.size > MAX_BYTES);
     let err = "";
     if (tooBig) err = `${tooBig.file.name} is over 4 GB.`;
-    else if (secs > MAX_MINUTES * 60) err = `That is ${fmtTime(secs)} of footage; the limit is ${MAX_MINUTES} minutes per job.`;
-    $("formErr").textContent = err;
-    $("total").textContent = files.length ? `${files.length} clip${files.length > 1 ? "s" : ""}, ${fmtTime(secs)} in total` : "";
+    else if (total > MAX_MINUTES * 60) err = `That is ${fmtTime(total)} of footage; the limit is ${MAX_MINUTES} minutes per batch.`;
+    $("fileErr").textContent = err;
+    $("checks").innerHTML = files.length ? (notVertical.length ? `<span class="chk warn"><span class="tick">!</span>${notVertical.length === 1 ? "One clip is" : "Some clips are"} not vertical (the sides will be cropped)</span>` : `<span class="chk"><span class="tick">${icon("check")}</span>Vertical video</span>`) +
+      (total ? `<span class="chk${total > MAX_MINUTES * 60 ? " warn" : ""}"><span class="tick">${total > MAX_MINUTES * 60 ? "!" : icon("check")}</span>${fmtTime(total)} of footage</span>` : "") : "";
+    const lo = Math.round((6 + 3.5 * ads) * .75), hi = Math.round((6 + 3.5 * ads) * 1.25);
+    $("sum").textContent = `${ads} ad${ads > 1 ? "s" : ""}, about ${secs} seconds each. Usually ${lo} to ${hi} minutes.`;
     $("go").disabled = !files.length || !!err;
+    // the preview shows the person's own first clip until the ads exist
+    if (!watching) {
+      if (files.length && !clipUrl) { clipUrl = URL.createObjectURL(files[0].file); showVideo(clipUrl, "Your video, before the AI"); }
+      if (!files.length) { if (clipUrl) URL.revokeObjectURL(clipUrl); clipUrl = null; showEmpty("Your ad will appear here", "Add a video to see it."); }
+    }
+  }
+  $("brief").addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("go").disabled) $("go").click(); });
+
+  // ------------------------------------------------------------------ preview player
+  const vid = $("vid");
+  function showEmpty(t, s) { vid.hidden = true; vid.removeAttribute("src"); vid.load(); $("tNow").textContent = "0:00"; $("tAll").textContent = "0:00"; $("seek").value = "0"; $("ph").hidden = false; $("phT").textContent = t; $("phS").textContent = s; $("ctl").dataset.off = "1"; $("pvMeta").textContent = ""; setPP(false); }
+  function showVideo(src, meta, keepAt) {
+    vid.hidden = false; $("ph").hidden = true; $("ctl").dataset.off = "0"; $("pvMeta").textContent = meta || "";
+    vid.src = src; if (keepAt) vid.addEventListener("loadedmetadata", () => { vid.currentTime = keepAt; }, { once: true });
+    vid.load();
+  }
+  function pauseVideo() { try { vid.pause(); } catch (e) { /* nothing playing */ } }
+  const setPP = (playing) => { $("pp").innerHTML = icon(playing ? "pause" : "play"); $("pp").title = playing ? "Pause" : "Play"; };
+  $("pp").onclick = () => { if (vid.paused) vid.play(); else vid.pause(); };
+  vid.addEventListener("play", () => setPP(true)); vid.addEventListener("pause", () => setPP(false));
+  vid.addEventListener("timeupdate", () => { $("tNow").textContent = fmtTime(vid.currentTime); if (vid.duration) $("seek").value = String(Math.round(1000 * vid.currentTime / vid.duration)); });
+  vid.addEventListener("loadedmetadata", () => { $("tAll").textContent = fmtTime(vid.duration); });
+  $("seek").addEventListener("input", () => { if (vid.duration) vid.currentTime = vid.duration * $("seek").value / 1000; });
+  $("back").onclick = () => { vid.currentTime = Math.max(0, vid.currentTime - 15); };
+  $("fwd").onclick = () => { vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 15); };
+  const SPEEDS = [1, 1.25, 1.5, 2, 0.75]; let spi = 0;
+  $("spd").onclick = () => { spi = (spi + 1) % SPEEDS.length; vid.playbackRate = SPEEDS[spi]; $("spd").textContent = SPEEDS[spi] + "x"; };
+  $("loop").onclick = () => { vid.loop = !vid.loop; $("loop").classList.toggle("on", vid.loop); };
+  $("mute").onclick = () => { vid.muted = !vid.muted; $("mute").innerHTML = icon(vid.muted ? "mute" : "vol"); $("mute").classList.toggle("on", vid.muted); };
+  $("full").onclick = () => { const f = vid.requestFullscreen || vid.webkitEnterFullscreen; if (f) f.call(vid); };
+  vid.addEventListener("click", () => $("pp").click());
+  let refreshedAt = 0;
+  vid.addEventListener("error", async () => {      // signed links last an hour: fetch fresh ones once in a while
+    if (!job || Date.now() - refreshedAt < 30000 || !vid.getAttribute("src") || vid.getAttribute("src").startsWith("blob:")) return;
+    refreshedAt = Date.now();
+    try { const j = await api("GET", `${BASE}/api/jobs/${job.job_id}`); const at = vid.currentTime; job = j; const ad = (j.result.ads || [])[sel]; if (ad && ad.preview_url) showVideo(ad.preview_url, `Ad ${sel + 1} of ${j.result.ads.length}`, at); } catch (e) { /* leave it */ }
+  });
+
+  // ------------------------------------------------------------------ making a batch
+  let job = null, watching = null, gen = 0, pollTimer = null, sel = 0, xhrs = [], cancelled = false, startedAt = 0, last = null;
+  const STEPS = [["Upload your video", ["uploading"]], ["Listen to what you said", ["queued", "starting", "downloading", "preparing", "transcribing"]], ["Pick the best moments", ["planning"]],
+                 ["Cut, caption and add the end screen", ["rendering"]], ["Check every ad", ["checking"]], ["Save your ads", ["uploading-results"]]];
+  function stepIndex(j) {
+    if (!j) return 0;
+    if (j.status === "uploading") return 0;
+    if (j.status === "queued") return 1;
+    const st = j.stage || "starting";
+    if (st === "uploading") return 5;
+    const i = STEPS.findIndex(([, keys]) => keys.includes(st));
+    return i < 0 ? 1 : i;
+  }
+  function setLeft(which) { for (const id of ["mkForm", "mkWork", "mkEnd", "mkDone"]) $(id).hidden = id !== which; }
+
+  function renderWork(j, uploadPct) {
+    setLeft("mkWork");
+    const count = ads, phase = j ? j.status : "uploading";
+    const label = files.length ? files.map((x) => x.file.name).join(", ") : (j ? j.label : "");
+    $("wLabel").textContent = label;
+    const n = j && j.asked && j.asked.ads ? j.asked.ads : count;
+    $("wTitle").textContent = `Making your ${words(n)} ad${n > 1 ? "s" : ""}…`;
+    const pct = phase === "uploading" ? Math.round((uploadPct || 0) * 0.08 * 100) / 100 : j.percent;
+    $("wPct").textContent = Math.round(pct) + "%"; $("wBar").style.width = pct + "%";
+    $("wText").textContent = phase === "uploading" ? "Keep this tab open until the upload finishes." :
+      phase === "queued" ? (j.ahead ? `Waiting in line: ${j.ahead} job${j.ahead > 1 ? "s" : ""} ahead of this one.` : "Waiting for the editor to pick it up.") :
+      `About ${j.minutes_left || 1} minute${(j.minutes_left || 1) > 1 ? "s" : ""} left. You can close this page and come back: the batch keeps going and is listed under Recent.`;
+    const si = stepIndex(j);
+    $("wSteps").innerHTML = STEPS.map(([t], i) => `<li class="${i < si ? "done" : i === si ? "now" : ""}"><span class="pi">${i < si ? icon("check") : ""}</span>${esc(t)}${i === 3 && si === 3 && j && j.stage_detail ? ` <span class="hint">· ${esc(j.stage_detail)}</span>` : ""}</li>`).join("");
+    $("wActs").hidden = !$("wConfirm").hidden;           // the poll must not bring Cancel back while Stop? is showing
+    showEmpty("Making your ads", "The preview appears here when they're done.");
   }
 
-  // ---------------------------------------------------------------- making ads
   $("go").onclick = async () => {
-    $("go").disabled = true;
-    $("formErr").textContent = "";
-    const brief = $("brief").value.trim();
+    $("go").disabled = true; $("formErr").textContent = ""; cancelled = false; xhrs = [];
+    const body = { brief: $("brief").value.trim(), ads, seconds: secs, by: name, cta_line: $("ctaLine").value, cta_button: $("ctaBtn").value,
+                   clips: files.map((x) => ({ name: x.file.name, bytes: x.file.size })) };
+    let created;
+    try { created = await api("POST", `${BASE}/api/jobs`, body); } catch (err) { $("formErr").textContent = err.message; $("go").disabled = false; return; }
+    watching = created.job_id; job = null; startedAt = Date.now(); last = { jobId: created.job_id, files: files.slice(), brief: $("brief").value };
+    renderWork(null, 0); $("wErr").textContent = ""; $("wFiles").innerHTML = created.clips.map((c) => `<li class="row" style="margin:6px 0"><span class="nm" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span><span class="bar2" style="width:110px"><i id="up${c.n}"></i></span><span class="hint" id="upp${c.n}" style="width:42px">0%</span></li>`).join("");
+    location.hash = created.job_id;
     try {
-      const job = await api("POST", `${BASE}/api/jobs`, { brief, clips: files.map((x) => ({ name: x.file.name, bytes: x.file.size })) });
-      $("form").hidden = true;
-      showProgress("Uploading", "Keep this tab open until the upload finishes.");
-      $("pFiles").innerHTML = job.clips.map((c) =>
-        `<li><span class="name">${esc(c.name)}</span><span class="bar"><i id="bar${c.n}"></i></span><span class="meta" id="pct${c.n}">0%</span></li>`).join("");
-      for (const c of job.clips) {
-        await putFile(c.put_url, files[c.n].file, (p) => { $("bar" + c.n).style.width = (p * 100).toFixed(0) + "%"; $("pct" + c.n).textContent = (p * 100).toFixed(0) + "%"; });
-        $("pct" + c.n).textContent = "done";
+      let done = 0;
+      for (const c of created.clips) {
+        await putFile(c.put_url, files[c.n].file, (p) => { $("up" + c.n).style.width = (p * 100).toFixed(0) + "%"; $("upp" + c.n).textContent = (p * 100).toFixed(0) + "%"; renderWorkPct((done + p) / created.clips.length); });
+        done++; $("upp" + c.n).textContent = "done";
       }
-      $("pFiles").innerHTML = "";
-      await api("POST", `${BASE}/api/jobs/${job.job_id}/start`);
-      watch(job.job_id);
-      location.hash = job.job_id;     // hashchange sees it is already being watched and does nothing
+      if (cancelled) return;
+      $("wFiles").innerHTML = "";
+      const started = await api("POST", `${BASE}/api/jobs/${created.job_id}/start`);
+      files = []; usedIdeas = new Set(); $("brief").value = ""; renderIdeas();      // the next batch starts clean
+      if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+      watch(created.job_id, started);
     } catch (err) {
-      if ($("form").hidden) { $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false; }
-      else { $("formErr").textContent = err.message; $("go").disabled = false; }
+      if (cancelled) return;
+      $("wErr").textContent = err.message; $("wActs").hidden = true;
+      $("wSteps").innerHTML = ""; $("wText").textContent = "";
+      api("POST", `${BASE}/api/jobs/${created.job_id}/cancel`).catch(() => {});
+      watching = null;
+      endCard("That did not go through", err.message, "Nothing was made and nothing was spent. Your clips and request are still here, so you can try again.", { jobId: created.job_id });
     }
   };
+  function renderWorkPct(p) { const pct = Math.round(p * 8); $("wPct").textContent = pct + "%"; $("wBar").style.width = pct + "%"; }
 
   function putFile(url, file, onProgress) {
     return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+      const xhr = new XMLHttpRequest(); xhrs.push(xhr);
       xhr.open("PUT", url);
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
       xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`The upload of ${file.name} failed (${xhr.status}). Please try again.`));
       xhr.onerror = () => reject(new Error(`The upload of ${file.name} failed (network or permission problem). Please try again.`));
+      xhr.onabort = () => reject(new Error("Upload stopped."));
       xhr.send(file);
     });
   }
 
-  async function api(method, url, body) {
-    const res = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
-    let data = null;
-    try { data = await res.json(); } catch (e) { /* no body */ }
-    if (!res.ok) throw new Error((data && (data.detail || data.error)) || `Request failed (${res.status})`);
-    return data;
-  }
-
-  // ---------------------------------------------------------------- watching a job
-  const STAGE = {
-    queued: (j) => j.ahead ? `Waiting in line: ${j.ahead} job${j.ahead > 1 ? "s" : ""} ahead of this one.` : "Waiting for the editor to pick it up.",
-    working: () => "Working.", starting: () => "Starting.", downloading: () => "Fetching your clips.",
-    preparing: () => "Preparing the footage.", transcribing: () => "Listening to the footage.",
-    planning: () => "Gemini is watching the footage and planning the ads.",
-    rendering: (j) => "Rendering" + (j.stage_detail ? ", " + j.stage_detail : "") + ".",
-    checking: (j) => "Gemini is watching the finished ads to check them" + (j.stage_detail && /^ad \d+ of \d+$/.test(j.stage_detail) ? ", " + j.stage_detail : "") + ".",
-    uploading: () => "Saving the ads.",
+  $("wCancel").onclick = () => { $("wConfirm").hidden = false; $("wActs").hidden = true; };
+  $("wKeep").onclick = () => { $("wConfirm").hidden = true; $("wActs").hidden = false; };
+  $("wStop").onclick = async () => {
+    cancelled = true; xhrs.forEach((x) => { try { x.abort(); } catch (e) { /* done already */ } });
+    $("wConfirm").hidden = true; clearTimeout(pollTimer); gen++;
+    const id = watching; watching = null;
+    try { if (id) await api("POST", `${BASE}/api/jobs/${id}/cancel`); } catch (e) { /* it may already be over */ }
+    endCard("Stopped", "", "Nothing was posted. Your clips and request are still here if you want to start again.", { jobId: id });
   };
 
-  function showProgress(title, text) {
-    $("progress").hidden = false; $("result").hidden = true; $("spinner").hidden = false;
-    $("pTitle").textContent = title; $("pText").textContent = text; $("pErr").textContent = ""; $("pActs").hidden = true;
-  }
-
-  function watch(jobId) {
-    const my = ++gen;
-    watching = jobId;
-    clearTimeout(pollTimer);
+  function watch(jobId, first) {
+    const my = ++gen; watching = jobId; clearTimeout(pollTimer); cancelled = false;
+    const apply = (j) => {
+      job = j;
+      if (j.status === "ready") return renderDone(j);
+      if (j.status === "failed") return endCard("Something went wrong", j.error || "The editor could not finish this batch.", "Your request is still here, so you can try again.", { jobId: j.job_id, brief: j.brief });
+      if (j.status === "cancelled") return endCard("Stopped", "", "Nothing was posted.", { jobId: j.job_id, brief: j.brief });
+      renderWork(j);
+    };
     const tick = async () => {
       if (my !== gen) return;
       try {
         const j = await api("GET", `${BASE}/api/jobs/${jobId}`);
         if (my !== gen) return;
-        render(j);
-        if (j.status !== "ready" && j.status !== "failed") pollTimer = setTimeout(tick, 4000);
-        else loadRecent();
-      } catch (err) {
-        if (my !== gen) return;
-        $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false;
-      }
+        apply(j);
+        if (!["ready", "failed", "cancelled"].includes(j.status)) pollTimer = setTimeout(tick, 4000);
+      } catch (err) { if (my !== gen) return; endCard("We could not load this batch", err.message, "", {}); }
     };
-    tick();
+    if (first) { apply(first); pollTimer = setTimeout(tick, 4000); } else tick();
   }
 
-  function render(j) {
-    $("form").hidden = true;
-    if (j.status === "ready" || j.status === "failed") { $("progress").hidden = true; renderResult(j); return; }
-    const key = (j.status === "working" && j.stage) ? j.stage : j.status;
-    const text = (STAGE[key] || (() => "Working."))(j);
-    showProgress(j.status === "queued" ? "In the queue" : "Making your ads", text + " Usually 10 to 20 minutes for a few minutes of footage. You can close this page and come back: the job is listed under Recent.");
+  function endCard(title, text, hint, opts) {
+    setLeft("mkEnd");
+    $("eTitle").textContent = title; $("eText").textContent = text || ""; $("eText").hidden = !text; $("eHint").textContent = hint || "";
+    $("eAgain").onclick = () => {
+      if (last && opts.jobId && last.jobId === opts.jobId) { files = last.files.slice(); newBatch(false, last.brief); files.forEach((x) => { if (x.seconds == null) readMeta(x.file).then((m) => { Object.assign(x, m); updateForm(); }); }); }
+      else newBatch(true, opts.brief);
+    };
+    $("eNew").onclick = () => newBatch(true);
+    $("adTabs").hidden = true; $("dSel").innerHTML = "";
+    showEmpty("Your ad will appear here", "Add a video to see it.");
   }
 
-  function renderResult(j) {
-    const r = j.result || {};
-    const h = [];
-    h.push(`<div class="card"><div class="status"><span class="chip ${j.status === "ready" ? "ok" : "bad"}">${j.status === "ready" ? "Ready" : "Failed"}</span>` +
-            `<strong>${esc(j.label)}</strong><span class="hint">${esc(j.clips.join(", "))}</span></div>`);
-    if (j.brief) h.push(`<p><span class="hint">Asked for:</span> ${esc(j.brief)}</p>`);
-    if (j.error) h.push(`<p class="err">${esc(j.error)}</p>`);
-    if (r.response_to_request) h.push(`<p><span class="hint">How Gemini read it:</span> ${esc(r.response_to_request)}</p>`);
-    if (r.summary) h.push(`<p><span class="hint">What it saw:</span> ${esc(r.summary)}</p>`);
-    const acts = [];
-    if (r.notes_url) acts.push(`<a class="dl" href="${esc(r.notes_url)}">Download the review notes</a>`);
-    acts.push(`<button class="btn ghost" id="another">Start another</button>`);
-    h.push(`<div class="acts row">${acts.join("")}</div></div>`);
-    for (const ad of r.ads || []) {
-      h.push(`<div class="card ad">` +
-        (ad.preview_url ? `<video controls playsinline preload="metadata" src="${esc(ad.preview_url)}"></video>` : `<div></div>`) +
-        `<div><h3>${esc(ad.name)}</h3>` +
-        `<p><span class="chip">${esc(ad.funnel_stage || "ad")}</span> <span class="hint">${fmtTime(ad.seconds)}${ad.speech_match != null ? ` · captions match speech ${(ad.speech_match * 100).toFixed(0)}%` : ""}</span></p>` +
-        (ad.error ? `<p class="err">${esc(ad.error)}</p>` : "") +
-        `<p><strong>Headline:</strong> ${esc(ad.headline)}</p>` +
-        (ad.angle ? `<p class="hint">${esc(ad.angle)}</p>` : "") +
-        (ad.callouts && ad.callouts.length ? `<p><strong>Callouts:</strong> ${ad.callouts.map((c) => esc(c.replace(/\n/g, " / "))).join(" · ")}</p>` : "") +
-        (ad.primary_text ? `<p><strong>Primary text</strong></p><div class="copy">${esc(ad.primary_text)}</div>` : "") +
-        `<div class="acts">${ad.download_url ? `<a class="dl" href="${esc(ad.download_url)}">Download ${esc(ad.file)}</a>` : ""}</div>` +
-        reviewHtml(ad) + feedbackHtml(j.job_id, ad) + `</div></div>`);
+  function newBatch(clear, brief) {
+    clearTimeout(pollTimer); gen++; watching = null; job = null; cancelled = false;
+    if (clear) { files = []; usedIdeas = new Set(); $("brief").value = ""; renderIdeas(); }
+    if (typeof brief === "string" && brief) { $("brief").value = brief; }
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+    $("adTabs").hidden = true; $("dSel").innerHTML = ""; $("wConfirm").hidden = true; $("wErr").textContent = ""; $("wFiles").innerHTML = "";
+    setLeft("mkForm"); updateForm();
+    if (location.hash && UUID.test(location.hash.slice(1))) history.replaceState(null, "", location.pathname + "#make");
+  }
+  $("dMore").onclick = () => newBatch(true);
+
+  function openJob(id, tryAgain) {
+    goTab("make"); history.replaceState(null, "", location.pathname + "#" + id);
+    if (tryAgain) {
+      api("GET", `${BASE}/api/jobs/${id}`).then((j) => { newBatch(true, j.brief || ""); }).catch(() => newBatch(true));
+      return;
     }
-    if (r.claims_to_review && r.claims_to_review.length) {
-      h.push(`<div class="card claims"><h3>Claims to get approved before running</h3><ul>` +
-        r.claims_to_review.map((c) => `<li><strong>${esc(c.ad)}:</strong> “${esc(c.claim)}” <span class="hint">${esc(c.reason)}</span></li>`).join("") + `</ul></div>`);
-    }
-    if (r.pipeline_notes && r.pipeline_notes.length) {
-      h.push(`<details class="card"><summary>Editor notes (${r.pipeline_notes.length})</summary><ul>${r.pipeline_notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>`);
-    }
-    $("result").innerHTML = h.join("");
-    $("result").hidden = false;
-    $("another").onclick = reset;
-    $("result").querySelectorAll(".fb").forEach(wireFeedback);
+    watch(id);
   }
 
-  // ---------------------------------------------------------------- the self-check and the feedback buttons
+  // ------------------------------------------------------------------ the finished ads
+  const claimKey = (id) => "va.claims." + id;
+  function renderDone(j) {
+    const r = j.result || {}, list = (r.ads || []).filter((a) => a.preview_url);
+    setLeft("mkDone");
+    const n = list.length;
+    $("dTitle").innerHTML = n ? `Your ${words(n)} ad${n > 1 ? "s" : ""} <span>${n > 1 ? "are" : "is"} ready</span>` : `No ads <span>could be made</span>`;
+    $("dAll").hidden = !n;
+    $("dNotes").hidden = !r.notes_url; if (r.notes_url) $("dNotes").href = r.notes_url;
+    if (sel >= list.length) sel = 0;
+    drawList(list, j);
+    drawClaims(r, j);
+    $("dInfo").innerHTML = (j.brief ? `<div class="card"><p><span class="hint">You asked for:</span> ${esc(j.brief)}</p>` + (r.response_to_request ? `<p style="margin-top:8px"><span class="hint">How the AI read it:</span> ${esc(r.response_to_request)}</p>` : "") + (r.summary ? `<p style="margin-top:8px"><span class="hint">What it saw:</span> ${esc(r.summary)}</p>` : "") + `</div>` : "") +
+      (r.pipeline_notes && r.pipeline_notes.length ? `<details class="card"><summary>Editor notes (${r.pipeline_notes.length})</summary><ul>${r.pipeline_notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "") +
+      ((r.ads || []).filter((a) => a.error).map((a) => `<div class="card"><p class="err"><strong>${esc(a.name)}</strong> could not be made: ${esc(a.error)}</p></div>`).join(""));
+    $("adTabs").hidden = n < 2;
+    $("adTabs").innerHTML = list.map((a, i) => `<button class="pill" role="tab" data-i="${i}" aria-selected="${i === sel}">Ad ${i + 1} · ${esc(a.name)}</button>`).join("");
+    $("adTabs").querySelectorAll(".pill").forEach((b) => b.onclick = () => select(list, j, +b.dataset.i, true));
+    $("dAll").onclick = () => list.forEach((a, i) => setTimeout(() => { const l = document.createElement("a"); l.href = a.download_url; l.download = a.file || ""; document.body.appendChild(l); l.click(); l.remove(); }, i * 700));
+    if (n) select(list, j, sel, false); else { showEmpty("No ads to show", "Try again with a different request."); $("dSel").innerHTML = ""; }
+  }
+
+  function drawList(list, j) {
+    $("adList").innerHTML = `<div class="tip">Click an ad to play it.</div>` + list.map((a, i) =>
+      `<div class="adrow" role="button" tabindex="0" data-i="${i}" aria-selected="${i === sel}"><div class="th"><video muted playsinline preload="metadata" src="${esc(a.preview_url)}#t=0.6"></video></div>` +
+      `<div><div class="nm">${esc(a.name)}<small>${fmtTime(a.seconds)}</small></div>${i === sel ? '<div class="tag">Previewing</div>' : ""}<div class="why">${esc(a.angle || a.headline || "")}</div></div>` +
+      `<a class="btn ghost sm" href="${esc(a.download_url)}">${icon("download")}Download</a></div>`).join("");
+    $("adList").querySelectorAll(".adrow").forEach((row) => {
+      const pick = (e) => { if (e.target.closest("a")) return; select(list, j, +row.dataset.i, true); };
+      row.onclick = pick; row.onkeydown = (e) => { if (e.key === "Enter") pick(e); };
+    });
+  }
+  function drawClaims(r, j) {
+    const cl = r.claims_to_review || [];
+    $("claims").hidden = !cl.length;
+    if (!cl.length) return;
+    let saved = []; try { saved = JSON.parse(store.get(claimKey(j.job_id), "[]")); } catch (e) { saved = []; }
+    $("claims").innerHTML = `<h3>${icon("flag")}Before you post, double-check ${cl.length} thing${cl.length > 1 ? "s" : ""}</h3><p class="hint" style="margin:4px 0 8px">The AI flags anything Meta's financial ad review or compliance might question. Check each one off once you're happy with it.</p>` +
+      cl.map((c, i) => `<label class="claim"><input type="checkbox" data-i="${i}" ${saved[i] ? "checked" : ""}><span><b>${esc(c.ad)}:</b> “${esc(c.claim)}” <span class="hint">${esc(c.reason)}</span></span></label>`).join("");
+    $("claims").querySelectorAll("input").forEach((b) => b.onchange = () => { saved[+b.dataset.i] = b.checked; store.set(claimKey(j.job_id), JSON.stringify(saved)); });
+  }
+
+  function select(list, j, i, play) {
+    sel = i; const a = list[i];
+    drawList(list, j);
+    $("adTabs").querySelectorAll(".pill").forEach((b, k) => b.setAttribute("aria-selected", String(k === i)));
+    showVideo(a.preview_url, `Ad ${i + 1} of ${list.length}`);
+    if (play) vid.play().catch(() => {});
+    $("dSel").innerHTML = reviewHtml(a) + feedbackHtml(j.job_id, a);
+    const box = $("dSel").querySelector(".fb"); if (box) wireFeedback(box);
+  }
+
+  // the self-check scorecard and the Good / Not right buttons
   const AREA = { hook: "Hook", cuts: "Cuts", story: "Story", captions: "Captions", overlays: "Overlays", request_fit: "Fits the request", compliance: "Compliance" };
-
   function reviewHtml(ad) {
     const r = ad.review;
     if (!r || !r.scores) return "";
-    const chips = Object.keys(AREA).map((a) => {
-      const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0));
-      return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`;
-    }).join("");
-    const probs = (r.problems || []).map((p) =>
-      `<li>${p.at_s != null ? `<span class="hint">${fmtTime(p.at_s)} · ${esc(AREA[p.area] || p.area)}</span> ` : `<span class="hint">${esc(AREA[p.area] || p.area)}</span> `}` +
-      `${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
-    return `<div class="check${r.look ? " look" : ""}"><div class="head">${r.look ? "Worth a look before you run it" : "Gemini's self-check"}</div>` +
-      `<div class="scores">${chips}</div>` + (r.verdict ? `<p class="hint">${esc(r.verdict)}</p>` : "") +
-      (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
+    const chips = Object.keys(AREA).map((a) => { const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0)); return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`; }).join("");
+    const probs = (r.problems || []).map((p) => `<li><span class="hint">${p.at_s != null ? fmtTime(p.at_s) + " · " : ""}${esc(AREA[p.area] || p.area)}</span> ${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
+    return `<div class="card check${r.look ? " look" : ""}"><div class="head">${r.look ? icon("warn") + "Worth a look before you run it" : icon("sparkles") + "The AI's own check"}</div><div class="scores">${chips}</div>` +
+      (r.verdict ? `<p class="hint" style="margin-top:8px">${esc(r.verdict)}</p>` : "") + (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
   }
-
   function feedbackHtml(jobId, ad) {
     if (!ad.file) return "";
     const f = ad.feedback || {};
-    return `<div class="fb" data-job="${esc(jobId)}" data-k="${esc(ad.k)}" data-saved="${esc(f.verdict || "")}"><div class="fbrow"><span class="hint">Is this ad right?</span>` +
-      `<button class="pick${f.verdict === "good" ? " on" : ""}" data-v="good">Good</button>` +
-      `<button class="pick${f.verdict === "bad" ? " on bad" : ""}" data-v="bad">Not right</button></div>` +
-      `<textarea maxlength="1000" placeholder="What would you change? (optional, helps the next ads)">${esc(f.note || "")}</textarea>` +
-      `<div class="fbrow"><button class="btn small" disabled>Save feedback</button><span class="hint fbmsg">${f.verdict ? "Saved." : ""}</span></div></div>`;
+    return `<div class="card fb" data-job="${esc(jobId)}" data-k="${esc(ad.k)}" data-saved="${esc(f.verdict || "")}"><div class="row"><strong style="color:var(--ink)">Is this ad right?</strong>` +
+      `<button class="pick${f.verdict === "good" ? " on" : ""}" data-v="good">Good</button><button class="pick${f.verdict === "bad" ? " on bad" : ""}" data-v="bad">Not right</button></div>` +
+      `<textarea maxlength="1000" placeholder="What would you change? (optional, and it helps the next ads)">${esc(f.note || "")}</textarea>` +
+      `<div class="row" style="margin-top:10px"><button class="btn sm" disabled>Save feedback</button><span class="hint fbmsg">${f.verdict ? "Saved." : ""}</span></div></div>`;
   }
-
   function wireFeedback(box) {
     const save = box.querySelector(".btn"), note = box.querySelector("textarea"), msg = box.querySelector(".fbmsg");
     let choice = box.dataset.saved || "";
@@ -363,45 +904,25 @@
     note.oninput = dirty;
     save.onclick = async () => {
       save.disabled = true; msg.textContent = "Saving.";
-      try {
-        await api("POST", `${BASE}/api/jobs/${box.dataset.job}/ads/${box.dataset.k}/feedback`, { verdict: choice, note: note.value });
-        msg.textContent = "Saved. The next ads will take it into account.";
-      } catch (err) { msg.textContent = err.message; save.disabled = false; }
+      try { await api("POST", `${BASE}/api/jobs/${box.dataset.job}/ads/${box.dataset.k}/feedback`, { verdict: choice, note: note.value }); msg.textContent = "Saved. The next ads will take it into account."; }
+      catch (err) { msg.textContent = err.message; save.disabled = false; }
     };
   }
 
-  function reset() {
-    clearTimeout(pollTimer); gen++; watching = null;
-    files = []; renderFiles(); $("brief").value = "";
-    $("result").hidden = true; $("progress").hidden = true; $("form").hidden = false; $("go").disabled = true;
-    history.replaceState(null, "", location.pathname);
+  // ------------------------------------------------------------------ settings
+  const money = (n) => "$" + Number(n).toFixed(2);
+  async function loadSettings() {
+    try { overviewData = await api("GET", `${BASE}/api/overview`); } catch (e) { /* keep what we have */ }
+    const sp = overviewData && overviewData.spend;
+    if (!sp) { $("spend").innerHTML = `<p class="hint">The spending numbers could not be loaded right now.</p>`; }
+    else {
+      const used = sp.spent + sp.reserved, pct = sp.cap ? Math.min(100, Math.round(100 * used / sp.cap)) : 0;
+      $("spend").innerHTML = `<div class="row" style="align-items:baseline"><strong style="font-size:26px;color:var(--ink)">${money(sp.spent)}</strong><span class="hint">${sp.cap ? "used of " + money(sp.cap) + " this month" : "used this month (no limit is recorded yet)"}</span></div>` +
+        (sp.cap ? `<div class="bar2" style="margin-top:10px"><i style="width:${pct}%"></i></div>` : "") + (sp.reserved > 0.005 ? `<p class="hint" style="margin-top:8px">${money(sp.reserved)} more is set aside for jobs that are running.</p>` : "");
+    }
+    loadLibrary(false);
   }
-  $("again").onclick = reset;
-
-  // ---------------------------------------------------------------- recent jobs
-  const when = (iso) => {
-    const d = new Date(iso), diff = (Date.now() - d) / 60000;
-    if (diff < 1) return "just now";
-    if (diff < 60) return `${Math.round(diff)} min ago`;
-    if (diff < 60 * 24) return `${Math.round(diff / 60)} h ago`;
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  };
-  const STATUS_WORD = { queued: "in line", working: "working", ready: "ready", failed: "failed", approved: "approved", cancelled: "cancelled" };
-
-  async function loadRecent() {
-    try {
-      const data = await api("GET", `${BASE}/api/jobs`);
-      if (!data.jobs.length) return;
-      $("recent").innerHTML = data.jobs.map((j) =>
-        `<li data-id="${esc(j.job_id)}"><span class="when">${when(j.created_at)}</span><span class="what"><strong>${esc(j.label)}</strong>` +
-        (j.brief ? ` <span class="brief">— ${esc(j.brief)}</span>` : "") + `</span><span class="chip ${j.status === "ready" ? "ok" : j.status === "failed" ? "bad" : ""}">${STATUS_WORD[j.status] || esc(j.status)}</span></li>`).join("");
-      $("recent").querySelectorAll("li").forEach((li) => li.onclick = () => { watch(li.dataset.id); location.hash = li.dataset.id; window.scrollTo({ top: 0, behavior: "smooth" }); });
-    } catch (err) { /* the list is a convenience; keep the page usable */ }
-  }
-
-  // ---------------------------------------------------------------- the library
   const LIB_WORD = { done: "studied", working: "watching", new: "waiting", failed: "failed", skipped: "skipped" };
-
   async function loadLibrary(full) {
     try {
       const d = await api("GET", `${BASE}/api/library${full ? "?lessons=true" : ""}`);
@@ -410,23 +931,26 @@
       $("libShow").hidden = full;
       if (!full) return;
       $("lib").innerHTML = d.videos.map((v) =>
-        `<details class="lib"><summary><span class="chip ${v.status === "done" ? "ok" : v.status === "failed" ? "bad" : ""}">${LIB_WORD[v.status] || esc(v.status)}</span>` +
-        `<strong>${esc(v.title)}</strong><span class="hint">${esc(v.minutes)} min · ${esc(v.lesson_count)} lessons</span></summary>` +
-        (v.reason ? `<p class="err">${esc(v.reason)}</p>` : "") +
-        (v.summary ? `<p class="hint">${esc(v.summary)}</p>` : "") +
-        `<p><a class="dl" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></p>` +
-        ((v.lessons || []).length ? `<ol class="lessons">${v.lessons.map((l) =>
-          `<li><span class="hint">${fmtTime(l.at_s)} · ${esc(l.topic)}</span> ${esc(l.principle)} <span class="chip">${esc(l.lever)}</span>` +
-          (l.how_we_apply ? `<div class="hint">${esc(l.how_we_apply)}</div>` : "") + `</li>`).join("")}</ol>` : "") +
-        `</details>`).join("");
+        `<details class="lib"><summary><span class="badge ${v.status === "done" ? "ok" : v.status === "failed" ? "bad" : "neutral"}">${LIB_WORD[v.status] || esc(v.status)}</span> <strong style="color:var(--ink)">${esc(v.title)}</strong> <span class="hint">${esc(v.minutes)} min · ${esc(v.lesson_count)} lessons</span></summary>` +
+        (v.reason ? `<p class="err">${esc(v.reason)}</p>` : "") + (v.summary ? `<p class="hint">${esc(v.summary)}</p>` : "") +
+        `<p><a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></p>` +
+        ((v.lessons || []).length ? `<ol class="lessons">${v.lessons.map((l) => `<li><span class="hint">${fmtTime(l.at_s)} · ${esc(l.topic)}</span> ${esc(l.principle)} <span class="badge neutral">${esc(l.lever)}</span>${l.how_we_apply ? `<div class="hint">${esc(l.how_we_apply)}</div>` : ""}</li>`).join("")}</ol>` : "") + `</details>`).join("");
     } catch (err) { $("libLine").textContent = "The library could not be loaded right now."; }
   }
   $("libShow").onclick = () => loadLibrary(true);
 
-  window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id && id !== watching) watch(id); });
-  loadRecent();
-  loadLibrary(false);
-  if (location.hash.length > 1) watch(location.hash.slice(1));
+  // ------------------------------------------------------------------ start up
+  renderChoices(); renderIdeas(); showName(); updateForm();
+  if (!store.get("va.asked") && !name) askName();
+  window.addEventListener("hashchange", () => {
+    const h = location.hash.slice(1);
+    if (UUID.test(h) && h !== watching) { show("make"); watch(h); }
+    else if (["overview", "make", "settings"].includes(h) && h !== tab) show(h);
+  });
+  const h0 = location.hash.slice(1);
+  loadOverview();                              // also fills the end-screen defaults
+  if (UUID.test(h0)) { show("make"); watch(h0); }
+  else show(["overview", "make", "settings"].includes(h0) ? h0 : "overview");
 })();
 </script>
 </body>

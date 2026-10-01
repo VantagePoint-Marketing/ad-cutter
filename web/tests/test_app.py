@@ -34,6 +34,8 @@ class FakeDB:
         self.jobs, self.events = {}, []
         self.library_sources, self.library_notes, self.library_missing = [], [], False
         self.feedback, self.feedback_missing = [], False        # rows of (job_id, ad_k, verdict, note), oldest first
+        self.stats_row, self.stats_missing = (14, 1.384, 540.0, 41), False   # videos, cost, wait seconds, ads
+        self.spend_row = (1.38, 0.2, 90.0)                                    # spent, reserved, cap
 
     def connect(self):
         return self
@@ -67,6 +69,30 @@ class FakeDB:
         if sql.startswith("insert into job_events"):
             self.events.append(params)
             return Cursor([], [])
+        if sql.startswith("update jobs set status = 'cancelled'"):
+            job = self.jobs.get(params[0])
+            if job and job["status"] in ("uploading", "queued", "working"):
+                job["status"] = "cancelled"
+                return Cursor(["id"], [(job["id"],)])
+            return Cursor(["id"], [])
+        if "from jobs where created_by = 'web' and created_at >= date_trunc" in sql:        # the Overview numbers
+            if self.stats_missing:
+                raise RuntimeError("stats query failed")
+            return Cursor(["videos", "cost", "wait_seconds", "ads"], [self.stats_row])
+        if "from budget_months" in sql:
+            if self.spend_row is None:
+                return Cursor(["spent", "reserved", "cap_usd"], [])
+            return Cursor(["spent", "reserved", "cap_usd"], [self.spend_row])
+        if "jsonb_path_query_array" in sql and "order by created_at desc" in sql:            # Recent, with ad counts
+            def planned(j):
+                return (j["result"] or {}).get("ads", [])
+            listed = [j for j in self.jobs.values() if j["status"] != "uploading"]
+            cols = ["job_id", "status", "stage", "stage_detail", "error", "created_at", "finished_at", "label", "brief",
+                    "by", "asked_ads", "cost_usd", "clips", "ads_planned", "ads_ready"]
+            return Cursor(cols, [(j["id"], j["status"], j["stage"], j["stage_detail"], j["error"], j["created_at"],
+                                  j["finished_at"], j["source_name"], j["options"].get("request", j["options"].get("brief")),
+                                  j["options"].get("by"), j["options"].get("ads"), j["cost_usd"], len(j["sources"]),
+                                  len(planned(j)), sum(1 for a in planned(j) if a.get("file_key"))) for j in listed])
         if sql.startswith("update jobs set status = 'queued'"):
             job = self.jobs.get(params[0])
             if job and job["status"] == "uploading":
@@ -157,7 +183,7 @@ def test_only_the_right_link_works(client):
     assert client.get("/").status_code == 404
     for url in (f"/{TOKEN}/", f"/{TOKEN}"):
         res = client.get(url)
-        assert res.status_code == 200 and "Video Agent" in res.text and "<video" in res.text
+        assert res.status_code == 200 and "Ad Cutter" in res.text and "<video" in res.text
 
 
 def test_healthz_reports_upload_setup(client):
@@ -199,7 +225,8 @@ def test_create_job_hands_out_one_upload_link_per_clip_in_order(client):
     assert row["status"] == "uploading" and row["source_name"] == "A.MOV + 1 more"
     assert row["sources"] == [{"key": f"uploads/{jid}/clip-0", "name": "A.MOV", "bytes": 100},
                               {"key": f"uploads/{jid}/clip-1", "name": "B.MOV", "bytes": 200}]
-    assert row["options"] == {"brief": "two cold ads"} and row["source_key"] == f"uploads/{jid}/clip-0"
+    assert row["options"] == {"brief": "two cold ads", "request": "two cold ads"}
+    assert row["source_key"] == f"uploads/{jid}/clip-0"
     assert client.db.events[-1] == (jid, "created from the web page with 2 clip(s)")
 
 
@@ -403,3 +430,108 @@ def test_the_page_still_works_before_the_feedback_table_exists(client):
     client.db.feedback_missing = True
     ads = client.get(f"/{TOKEN}/api/jobs/{jid}").json()["result"]["ads"]
     assert ads[0]["feedback"] is None and ads[0]["review"]["scores"]["cuts"] == 4
+
+
+# ---------------------------------------------------------------- the new page: choices, cancel, overview
+
+def make(client, **extra):
+    res = client.post(f"/{TOKEN}/api/jobs", json={"brief": "lead with the lag", "clips": [{"name": "A.MOV", "bytes": 5}],
+                                                   **extra})
+    return res
+
+
+def test_the_pages_choices_reach_gemini_as_one_sentence_and_the_typed_request_is_kept(client):
+    res = make(client, ads=3, seconds=40, by="  Dana \n K. ", cta_line="See it live", cta_button="Learn more")
+    assert res.status_code == 200
+    opts = client.db.jobs[res.json()["job_id"]]["options"]
+    assert opts["brief"] == "lead with the lag\n\nMake 3 ads, each about 40 seconds long."
+    assert opts["request"] == "lead with the lag" and opts["ads"] == 3 and opts["seconds"] == 40
+    assert opts["by"] == "Dana K." and opts["cta_line"] == "See it live" and opts["cta_button"] == "Learn more"
+    one = client.db.jobs[make(client, ads=1).json()["job_id"]]["options"]
+    assert one["brief"].endswith("Make 1 ad.") and "seconds" not in one
+    assert client.get(f"/{TOKEN}/api/jobs/{res.json()['job_id']}").json()["brief"] == "lead with the lag"
+
+
+def test_an_end_screen_left_at_its_default_is_not_stored_and_odd_wording_is_tidied(client, monkeypatch):
+    monkeypatch.setattr(web, "team_defaults", lambda: {"cta_line": "default line", "cta_button": "default button",
+                                                       "cta_seconds": 3})
+    opts = client.db.jobs[make(client, cta_line="default line", cta_button="default button").json()["job_id"]]["options"]
+    assert "cta_line" not in opts and "cta_button" not in opts
+    opts = client.db.jobs[make(client, cta_line="x" * 300, cta_button="a\x00b\x07c").json()["job_id"]]["options"]
+    assert len(opts["cta_line"]) == web.CTA_LINE_MAX and opts["cta_button"] == "a b c"
+
+
+@pytest.mark.parametrize("extra", [{"ads": 2}, {"ads": 0}, {"seconds": 30}, {"seconds": 1000}, {"ads": "many"},
+                                   {"cta_line": "x" * 401}, {"by": "x" * 401}])
+def test_choices_outside_the_pages_buttons_are_refused(client, extra):
+    assert make(client, **extra).status_code in (400, 422) and client.db.jobs == {}
+
+
+def test_without_choices_gemini_decides_as_before(client):
+    opts = client.db.jobs[make(client).json()["job_id"]]["options"]
+    assert opts == {"brief": "lead with the lag", "request": "lead with the lag"}
+
+
+def test_cancel_stops_a_job_that_has_not_finished_and_leaves_a_finished_one_alone(client):
+    jid = new_job(client)["job_id"]
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/cancel").json()["status"] == "cancelled"
+    assert client.db.events[-1] == (jid, "cancelled from the web page")
+    again = len(client.db.events)
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/cancel").json()["status"] == "cancelled" and len(client.db.events) == again
+    done = new_job(client)["job_id"]
+    client.db.jobs[done]["status"] = "ready"
+    assert client.post(f"/{TOKEN}/api/jobs/{done}/cancel").json()["status"] == "ready"
+    assert client.post(f"/{TOKEN}/api/jobs/00000000-0000-0000-0000-000000000000/cancel").status_code == 404
+    assert client.post(f"/wrong-token-1234567/api/jobs/{jid}/cancel").status_code == 404
+
+
+def test_overview_has_this_months_numbers_the_spend_and_the_end_screen_defaults(client):
+    o = client.get(f"/{TOKEN}/api/overview").json()
+    assert o["stats"] == {"videos": 14, "ads": 41, "cost": 1.38, "wait_minutes": 9}
+    assert o["spend"] == {"spent": 1.38, "reserved": 0.2, "cap": 90.0}
+    assert set(o["defaults"]) == {"cta_line", "cta_button", "cta_seconds"}
+    assert client.get(f"/wrong-token-1234567/api/overview").status_code == 404
+
+
+def test_overview_survives_a_failing_query_and_a_month_with_no_spend_row(client):
+    client.db.stats_missing, client.db.spend_row = True, None
+    o = client.get(f"/{TOKEN}/api/overview").json()
+    assert o["stats"] is None and o["spend"] == {"spent": 0.0, "reserved": 0.0, "cap": None}
+
+
+@pytest.mark.parametrize("status, stage, detail, ads, expect", [
+    ("uploading", None, None, 3, (3, None)),
+    ("queued", None, None, 3, (3, 16)),
+    ("working", "starting", None, 3, (5, 16)),
+    ("working", "planning", "Gemini is watching the footage", 3, (45, 9)),
+    ("working", "rendering", "ad 1 of 3", 3, (45, 9)),
+    ("working", "rendering", "ad 3 of 3", 3, (73, 4)),
+    ("working", "checking", "ad 2 of 2", 3, (92, 1)),
+    ("working", "uploading", None, 3, (97, 1)),
+    ("ready", None, None, 3, (100, None)), ("failed", None, None, 3, (100, None)), ("cancelled", None, None, 3, (100, None)),
+])
+def test_the_progress_estimate_follows_the_stages(status, stage, detail, ads, expect):
+    assert web.estimate(status, stage, detail, ads) == expect
+
+
+def test_a_running_job_reports_its_progress_to_the_page(client):
+    jid = new_job(client)["job_id"]
+    client.db.jobs[jid].update(status="working", stage="rendering", stage_detail="ad 2 of 3")
+    j = client.get(f"/{TOKEN}/api/jobs/{jid}").json()
+    assert j["percent"] == 59 and j["minutes_left"] == 7 and j["asked"] == {"ads": None, "seconds": None}
+
+
+def test_the_recent_list_carries_who_made_it_the_cost_and_the_ad_counts(client):
+    a = make(client, ads=3, by="Dana K.").json()["job_id"]
+    client.db.jobs[a].update(status="ready", cost_usd="0.10", result={"ads": [{"k": 1, "file_key": "r/1"}, {"k": 2, "file_key": None}]})
+    row = client.get(f"/{TOKEN}/api/jobs").json()["jobs"][0]
+    assert row["by"] == "Dana K." and row["cost_usd"] == 0.1 and (row["ads_planned"], row["ads_ready"]) == (2, 1)
+    assert row["percent"] == 100 and row["brief"] == "lead with the lag"
+
+
+def test_only_the_logo_can_be_fetched_from_assets(client):
+    ok = client.get(f"/{TOKEN}/assets/vp-mark.png")
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png" and "private" in ok.headers["cache-control"]
+    for name in ("app.py", "..%2Fapp.py", "index.html", "vp-mark.PNG", "%2e%2e%2fapp.py"):
+        assert client.get(f"/{TOKEN}/assets/{name}").status_code == 404
+    assert client.get("/wrong-token-1234567/assets/vp-mark.png").status_code == 404

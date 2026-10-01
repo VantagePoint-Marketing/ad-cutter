@@ -1,4 +1,4 @@
-"""The Video Agent page: upload clips, say what you want, get ads. One shared link, no accounts.
+"""The Ad Cutter page: upload clips, say what you want, get ads. One shared link, no accounts.
 
     python app.py                      serve on $PORT (Railway) or 8000
 
@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Path as UrlPath
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
@@ -46,6 +46,9 @@ LINK_SECONDS = 3600                      # how long signed preview/download link
 UPLOAD_LINK_SECONDS = 6 * 3600           # upload links last longer: several big clips on a home connection
 DAILY_JOBS = 30                          # jobs the page accepts per rolling day (worker time is not capped elsewhere)
 RECENT = 30
+BUDGET_KEY = "video-agent"               # the worker's ledger name for the staff editing key (worker/jobs.py KEY_NAME)
+ADS_CHOICES, SECONDS_CHOICES = (1, 3, 5), (20, 40, 60)       # the page's "How many ads?" and "How long?"
+MAX_NAME, CTA_LINE_MAX, CTA_BUTTON_MAX = 40, 70, 28          # a typed name; end-screen message and button wording
 MAX_NOTE = 1000                          # characters of a feedback note (migration 004 enforces the same)
 FEEDBACK_PER_JOB = 60                    # clicks one job accepts: the page's buttons can be changed, not spammed
 LIBRARY_REMOVED = "removed from the foundation list"     # worker/library.py REMOVED
@@ -144,12 +147,43 @@ class Clip(BaseModel):
 class NewJob(BaseModel):
     brief: str = ""
     clips: list[Clip]
+    ads: int | None = None               # the page's "How many ads?" (1, 3 or 5); None: Gemini decides
+    seconds: int | None = None           # the page's "How long?" (20, 40 or 60); None: Gemini decides
+    cta_line: str = Field("", max_length=400)      # end-screen wording for this batch; blank keeps the default
+    cta_button: str = Field("", max_length=400)
+    by: str = Field("", max_length=400)            # the name the person typed in their browser, shown in Recent
+
+
+def tidy(text: str, limit: int) -> str:
+    """Typed text kept to one line: control characters and runs of spaces become one space, cut to `limit`."""
+    return re.sub(r"[\x00-\x1f\x7f\s]+", " ", text or "").strip()[:limit].rstrip()
+
+
+def team_defaults() -> dict:
+    """The end-screen wording the worker uses when a batch does not change it (worker/config.json is copied into the
+    page's image for this)."""
+    try:
+        cfg = json.loads((HERE.parent / "worker" / "config.json").read_text(encoding="utf-8"))
+        brand, seconds = cfg.get("brand", {}), cfg.get("cta_seconds", 3)
+        return {"cta_line": str(brand.get("cta_line", "")), "cta_button": str(brand.get("cta_button", "")),
+                "cta_seconds": seconds}
+    except (OSError, ValueError, AttributeError):
+        return {"cta_line": "", "cta_button": "", "cta_seconds": 3}
 
 
 @app.post("/{token}/api/jobs")
 def create_job(body: NewJob, token: str = Depends(link)) -> dict:
     """A new job in 'uploading', with one signed upload link per clip. Nothing runs until /start."""
     brief = body.brief.strip()
+    if body.ads is not None and body.ads not in ADS_CHOICES:
+        raise HTTPException(400, "Choose 1, 3 or 5 ads.")
+    if body.seconds is not None and body.seconds not in SECONDS_CHOICES:
+        raise HTTPException(400, "Choose 20, 40 or 60 seconds.")
+    asked = brief            # what the person typed: shown back to them
+    if body.ads is not None or body.seconds is not None:       # the page's choices go to Gemini as one more sentence
+        parts = ([f"{body.ads} ad{'s' if body.ads != 1 else ''}"] if body.ads is not None else []) + \
+                ([f"each about {body.seconds} seconds long"] if body.seconds is not None else [])
+        brief = (brief + "\n\n" if brief else "") + "Make " + ", ".join(parts) + "."
     if len(brief) > MAX_BRIEF:
         raise HTTPException(400, f"Keep the description under {MAX_BRIEF:,} characters.")
     if not 1 <= len(body.clips) <= MAX_CLIPS:
@@ -166,6 +200,18 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
         raise HTTPException(400, f"The clips add up to {total / 1024 ** 3:.1f} GB; the limit is "
                                  f"{MAX_JOB_BYTES // 1024 ** 3} GB per job.")
     label = sources[0]["name"] + (f" + {len(sources) - 1} more" if len(sources) > 1 else "")
+    # `brief` is what Gemini reads; `request` is what the person typed (shown back to them). The end-screen wording is
+    # kept only when it differs from the default, and the worker trims and escapes it again.
+    options = {"brief": brief, "request": asked}
+    for key, value in (("ads", body.ads), ("seconds", body.seconds)):
+        if value is not None:
+            options[key] = value
+    if tidy(body.by, MAX_NAME):
+        options["by"] = tidy(body.by, MAX_NAME)
+    for key, limit in (("cta_line", CTA_LINE_MAX), ("cta_button", CTA_BUTTON_MAX)):
+        text = tidy(getattr(body, key), limit)
+        if text and text != team_defaults()[key]:
+            options[key] = text
     with connect() as conn:
         today = conn.execute("select count(*) from jobs where created_by = 'web' and created_at > now() - "
                              "interval '1 day'").fetchone()[0]
@@ -174,7 +220,7 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
                                      "daily limit. Please try again tomorrow.")
         conn.execute("insert into jobs (id, created_by, kind, status, source_key, source_name, sources, options) "
                      "values (%s, 'web', 'edit', 'uploading', %s, %s, %s, %s)",
-                     (job_id, sources[0]["key"], label, json.dumps(sources), json.dumps({"brief": brief})))
+                     (job_id, sources[0]["key"], label, json.dumps(sources), json.dumps(options)))
         conn.execute("insert into job_events (job_id, message) values (%s, %s)",
                      (job_id, f"created from the web page with {len(sources)} clip(s)"))
     b = bucket()
@@ -206,19 +252,92 @@ def start_job(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
     return job_view(jid)
 
 
+@app.post("/{token}/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
+    """Stop a job that has not finished. A job still waiting stops at once; one the worker is running stops at the
+    worker's next step (it checks before each one), so the money already spent on the current step is not recovered."""
+    jid = str(job_id)
+    with connect() as conn:
+        if not rows(conn, "select status from jobs where id = %s and created_by = 'web'", (jid,)):
+            raise HTTPException(404, "No such job.")
+        stopped = conn.execute("update jobs set status = 'cancelled', finished_at = now(), stage = null, "
+                               "stage_detail = null where id = %s and created_by = 'web' and "
+                               "status in ('uploading', 'queued', 'working') returning id", (jid,)).fetchone()
+        if stopped:
+            conn.execute("insert into job_events (job_id, message) values (%s, %s)", (jid, "cancelled from the web page"))
+    return job_view(jid)
+
+
 @app.get("/{token}/api/jobs/{job_id}")
 def job_status(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
     return job_view(str(job_id))
+
+
+@app.get("/{token}/api/overview")
+def overview(token: str = Depends(link)) -> dict:
+    """The Overview tab: this month's numbers, the team's AI spend against its limit, and the end-screen defaults.
+    Each part is read on its own, so one failing query leaves a gap (null) in the page, not a broken page."""
+    out: dict = {"stats": None, "spend": None, "defaults": team_defaults()}
+    try:
+        with connect() as conn:
+            found = rows(conn, "select count(*) filter (where status in ('queued', 'working', 'ready', 'failed')) as videos, "
+                               "coalesce(sum(cost_usd), 0) as cost, "
+                               "coalesce(avg(extract(epoch from finished_at - created_at)) filter (where status = 'ready'), 0) "
+                               "as wait_seconds, "
+                               "coalesce(sum(jsonb_array_length(jsonb_path_query_array(result, "
+                               "'$.ads[*] ? (@.file_key like_regex \".\")'))) filter (where status = 'ready'), 0) as ads "
+                               "from jobs where created_by = 'web' and created_at >= date_trunc('month', now())")
+        row = found[0]
+        out["stats"] = {"videos": int(row["videos"]), "ads": int(row["ads"]), "cost": round(float(row["cost"]), 2),
+                        "wait_minutes": round(float(row["wait_seconds"]) / 60)}
+    except Exception as err:   # noqa: BLE001 - a gap in the page, not a broken page
+        log.warning("overview stats failed: %s", type(err).__name__)
+    try:
+        with connect() as conn:
+            found = rows(conn, "select spent, reserved, cap_usd from budget_months where key_name = %s and month = "
+                               "to_char(now() at time zone 'UTC', 'YYYY-MM')", (BUDGET_KEY,))
+        row = found[0] if found else None
+        out["spend"] = {"spent": round(float(row["spent"]), 2) if row else 0.0,
+                        "reserved": round(float(row["reserved"]), 2) if row else 0.0,
+                        "cap": float(row["cap_usd"]) if row else None}
+    except Exception as err:   # noqa: BLE001
+        log.warning("overview spend failed: %s", type(err).__name__)
+    return out
+
+
+ASSETS = {"vp-mark.png": "image/png"}          # the only files /assets serves: no path from the URL reaches the disk
+
+
+@app.get("/{token}/assets/{name}")
+def asset(name: str, token: str = Depends(link)) -> FileResponse:
+    if name not in ASSETS:
+        raise HTTPException(404, "Not found")
+    return FileResponse(HERE / "static" / "assets" / name, media_type=ASSETS[name],
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/{token}/api/jobs")
 def recent_jobs(token: str = Depends(link)) -> dict:
     with connect() as conn:
         found = rows(conn, "select id::text as job_id, status, stage, stage_detail, error, created_at, finished_at, "
-                           "source_name as label, options->>'brief' as brief, jsonb_array_length(sources) as clips "
+                           "source_name as label, coalesce(options->>'request', options->>'brief') as brief, "
+                           "options->>'by' as by, (options->>'ads')::int as asked_ads, cost_usd, "
+                           "jsonb_array_length(sources) as clips, "
+                           "jsonb_array_length(jsonb_path_query_array(result, '$.ads[*]')) as ads_planned, "
+                           "jsonb_array_length(jsonb_path_query_array(result, '$.ads[*] ? (@.file_key like_regex \".\")')) "
+                           "as ads_ready "
                            "from jobs where created_by = 'web' and status <> 'uploading' "
                            "order by created_at desc limit %s", (RECENT,))
-    return {"jobs": [{**r, "created_at": iso(r["created_at"]), "finished_at": iso(r["finished_at"])} for r in found]}
+    out = []
+    for r in found:
+        percent, left = estimate(r["status"], r["stage"], r["stage_detail"], r["asked_ads"] or 3)
+        out.append({"job_id": r["job_id"], "status": r["status"], "stage": r["stage"], "stage_detail": r["stage_detail"],
+                    "error": r["error"], "label": r["label"], "brief": r["brief"], "by": r["by"], "clips": r["clips"],
+                    "cost_usd": float(r["cost_usd"]) if r["cost_usd"] is not None else None,
+                    "ads_planned": r["ads_planned"] or 0, "ads_ready": r["ads_ready"] or 0,
+                    "percent": percent, "minutes_left": left,
+                    "created_at": iso(r["created_at"]), "finished_at": iso(r["finished_at"])})
+    return {"jobs": out}
 
 
 class Feedback(BaseModel):
@@ -314,6 +433,28 @@ def job_view(job_id: str) -> dict:
     return present(row, int(ahead or 0), said)
 
 
+# where each worker stage sits on the progress bar (percent), and the minutes a whole job usually takes
+STAGE_PERCENT = {"starting": 5, "downloading": 8, "preparing": 18, "transcribing": 28, "planning": 45,
+                 "rendering": 45, "checking": 88, "uploading": 97}
+STAGE_SPAN = {"rendering": 42, "checking": 8}       # these two split their span across the ads (detail "ad 2 of 3")
+
+
+def estimate(status: str, stage: str | None, detail: str | None, ads: int = 3) -> tuple[int, int | None]:
+    """(percent done, minutes left) for the progress screen. An honest guess from the usual timings (about 6 minutes
+    plus 3.5 per ad), not a promise; minutes left is None when the job is not running."""
+    if status in ("ready", "failed", "cancelled"):
+        return 100, None
+    if status != "working":
+        return 3, None if status == "uploading" else 6 + round(3.5 * ads)
+    percent = STAGE_PERCENT.get(stage or "", 5)
+    found = re.fullmatch(r"ad (\d+) of (\d+)", detail or "")
+    if found and stage in STAGE_SPAN and 0 < int(found.group(1)) <= int(found.group(2)):
+        n, m = int(found.group(1)), int(found.group(2))
+        percent += round(STAGE_SPAN[stage] * (n - 1) / m)
+        ads = m
+    return percent, max(1, round((6 + 3.5 * ads) * (100 - percent) / 100))
+
+
 def public_review(review) -> dict | None:
     """A self-check scorecard as the page needs it (the worker validated it; this only drops anything unexpected)."""
     if not isinstance(review, dict) or not isinstance(review.get("scores"), dict):
@@ -325,8 +466,11 @@ def public_review(review) -> dict | None:
 def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:
     """What the page shows: the job's state in plain fields, and when it is done, the ads with signed links."""
     opts = row.get("options") or {}
+    percent, left = estimate(row["status"], row.get("stage"), row.get("stage_detail"), int(opts.get("ads") or 3))
     out = {"job_id": row["job_id"], "status": row["status"], "stage": row.get("stage"),
-           "stage_detail": row.get("stage_detail"), "error": row.get("error"), "brief": opts.get("brief", ""),
+           "stage_detail": row.get("stage_detail"), "error": row.get("error"),
+           "brief": opts.get("request", opts.get("brief", "")), "by": opts.get("by"), "percent": percent,
+           "minutes_left": left, "asked": {"ads": opts.get("ads"), "seconds": opts.get("seconds")},
            "label": row.get("source_name"), "clips": [s.get("name") for s in (row.get("sources") or [])],
            "created_at": iso(row.get("created_at")), "started_at": iso(row.get("started_at")),
            "finished_at": iso(row.get("finished_at")), "ahead": ahead,

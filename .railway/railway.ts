@@ -58,8 +58,8 @@ export default defineRailway((ctx) => {
     source: github(REPO, { branch: production ? "main" : "w0-worker-cloud" }),
     build: {
       builder: "DOCKERFILE",
-      dockerfilePath: "web/Dockerfile", // build context is the repo root; the image also copies worker/storage.py
-      watchPatterns: ["web/**", "worker/storage.py"],
+      dockerfilePath: "web/Dockerfile", // build context is the repo root; the image also copies worker/storage.py and config.json
+      watchPatterns: ["web/**", "worker/storage.py", "worker/config.json"],
     },
     deploy: {
       startCommand: "python app.py",

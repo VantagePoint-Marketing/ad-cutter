@@ -3,6 +3,39 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## The new page: Robert's final GUI, first release (2026-10-01, built and tested on the PC, not pushed)
+
+Robert delivered the final design (`AI video editor GUI mockups.zip` on his Desktop: Claude Design project, three tabs,
+dark and light). Decisions he made (2026-10-01): **shared link + the team's one key** (no sign-in, no per-person keys),
+**release in stages**, later features in this order: (1) "Change this ad" chat, (2) model and care pickers, (3) 4:5 and 1:1
+sizes, (4) logo/screenshots, voice dictation, notifications.
+
+What the first release is (`web/static/index.html`, plain HTML/CSS/JS in the design's look, icons inline, Nunito from
+Google Fonts, no other outside scripts; light/dark follows the OS, Settings can force one):
+- **Overview:** this month's stats (videos, ads, AI cost, average wait), Recent videos for the whole team with who made
+  them, status badges, progress, cost and the right action (See ads / View progress / Try again).
+- **Make ads:** drop clips (several allowed), request with idea chips, How many ads (1/3/5), How long (20/40/60 s), end
+  screen message and button for the batch, Make my ads (Ctrl or Cmd + Enter). Progress screen with six steps and an
+  honest estimate, **Cancel** with confirmation. Results: ad list with real thumbnails, Download all, per-ad download,
+  claims checklist (ticks kept in the browser), a phone-frame player with the design's controls (speed, back/forward 15 s,
+  loop, mute, full screen), the self-check scorecard and the Good / Not right buttons under the selected ad.
+- **Settings:** the person's name (stored in the browser; `options.by` on each job), appearance, the team's AI spend vs the
+  ledger cap (read-only), the reference-video library with lessons. No API-key fields: the key stays in Railway.
+- Not in this release (design features with no engine yet): Change-this-ad chat, model/care pickers, 4:5 and 1:1 previews,
+  extras (logo, screenshots), voice dictation, notifications, editing reference videos from Settings.
+
+Engine/API changes behind it: `POST api/jobs` accepts `ads`, `seconds`, `cta_line`, `cta_button`, `by` (the two choices are
+added to the request as one sentence for Gemini; the typed request is kept as `options.request`; end-screen wording is
+stored only when it differs from the default and the worker applies it for that job); `POST api/jobs/<id>/cancel`
+(queued/uploading jobs stop at once; a running job stops at the worker's next step: `jobs.set_stage` now returns False
+when the job is no longer `working` and this worker's, which raises `Cancelled`, a BaseException like `Stop`);
+`GET api/overview` (stats, spend, defaults; each part fails alone); `GET assets/vp-mark.png` (allow-list of one file);
+Recent now carries by/cost/ad counts/percent. The page's image copies `worker/config.json` for the end-screen defaults
+(`web/Dockerfile`; `.railway/railway.ts` watch pattern added: applies only after the next `config apply`).
+Tests: worker 240 passed + 5 skipped, web 52 passed. **Not run on real Postgres:** the Overview stats SQL and the Recent
+SQL use `jsonb_path_query_array(result, '$.ads[*] ? (@.file_key like_regex ".")')` (Postgres 12+); verify on staging.
+Preview without Railway: `dev_server.py` pattern (real app + fake DB, served locally) was used for the visual checks.
+
 ## Step B (2026-10-01, built, reviewed and tested on the PC; NOT yet pushed or deployed)
 
 Self-check scorecards + feedback buttons, as the plan's table defines B. The bounded re-plan is step D and is NOT built:

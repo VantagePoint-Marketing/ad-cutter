@@ -67,6 +67,11 @@ class Stop(BaseException):
     per-ad `except Exception` handlers can't swallow it."""
 
 
+class Cancelled(BaseException):
+    """Raised at the next progress report once the page has cancelled the job (or another worker owns it now). Also a
+    BaseException, so no per-ad or self-check handler can swallow it."""
+
+
 # ---------------------------------------------------------------- setup
 
 def lock_down_process() -> None:
@@ -98,10 +103,16 @@ def event(conn, job_id: str, message: str) -> None:
     conn.execute("insert into job_events (job_id, message) values (%s, %s)", (job_id, message[:500]))
 
 
-def set_stage(conn, job_id: str, stage: str, detail: str = "") -> None:
-    conn.execute("update jobs set stage = %s, stage_detail = %s, heartbeat_at = now() "
-                 "where id = %s and locked_by = %s", (stage, detail or None, job_id, WORKER_ID))
+def set_stage(conn, job_id: str, stage: str, detail: str = "") -> bool:
+    """Record what the job is doing. False when it is no longer this worker's running job (the page cancelled it, or
+    another worker took it over): the caller stops, so no more money is spent on it."""
+    done = conn.execute("update jobs set stage = %s, stage_detail = %s, heartbeat_at = now() "
+                        "where id = %s and locked_by = %s and status = 'working'",
+                        (stage, detail or None, job_id, WORKER_ID))
+    if getattr(done, "rowcount", 1) == 0:
+        return False
     event(conn, job_id, f"{stage}{': ' + detail if detail else ''}")
+    return True
 
 
 def finish(conn, job_id: str, status: str, *, result: dict | None = None, error: str | None = None,
@@ -165,8 +176,12 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         with conn_factory() as c:
             return fn(c, *args, **kw)
 
+    def progress(stage: str, detail: str = "") -> None:
+        if not db(set_stage, job_id, stage, detail):
+            raise Cancelled()
+
     try:
-        db(set_stage, job_id, "downloading")
+        progress("downloading")
         # the clips, in the order the person gave them; older rows have only source_key
         clips = job.get("sources") or [{"key": job["source_key"], "name": job["source_name"]}]
         declared = sum(int(clip.get("bytes") or 0) for clip in clips)
@@ -192,12 +207,14 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
                 (work / "pipeline").mkdir()
                 (work / "pipeline" / "plan.json").write_text(json.dumps(raw), encoding="utf-8")
         client = llm.OpenRouter(KEY_ENV, PostgresLedger(conn_factory, KEY_NAME, cfg["monthly_budget_usd"], job_id))
-        run = ac.run_pipeline(cfg, srcs, work / "pipeline", work / "out", client,
+        # the end-screen wording the person chose for this batch (the page checked and trimmed it)
+        brand = {k: str(opts[k]) for k in ("cta_line", "cta_button") if isinstance(opts.get(k), str) and opts[k].strip()}
+        run_cfg = {**cfg, "brand": {**cfg.get("brand", {}), **brand}} if brand else cfg
+        run = ac.run_pipeline(run_cfg, srcs, work / "pipeline", work / "out", client,
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
-                              progress=lambda stage, detail="": db(set_stage, job_id, stage, detail),
-                              team_notes=db(feedback.team_notes))
-        db(set_stage, job_id, "uploading")
+                              progress=progress, team_notes=db(feedback.team_notes))
+        progress("uploading")
         uploaded = {}
         for e in run["report"]:
             if e.get("file"):
@@ -213,6 +230,9 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         db(finish, job_id, "failed", result=result, no_retry=True,
            error="None of the ads could be rendered. See the notes for each ad.")
         return "failed"
+    except Cancelled:                         # the page cancelled it: nothing to hand back, nothing to retry
+        log.info("job %s cancelled; stopped at its next step", job_id)
+        return "cancelled"
     except Stop:
         with conn_factory() as conn:          # hand the job back without using up an attempt
             conn.execute("update jobs set status = 'queued', attempts = greatest(attempts - 1, 0), locked_by = null, "

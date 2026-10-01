@@ -16,8 +16,8 @@ JOB = "11111111-2222-3333-4444-555555555555"
 
 
 class FakeResult:
-    def __init__(self, rows):
-        self.rows = rows
+    def __init__(self, rows, rowcount=1):
+        self.rows, self.rowcount = rows, rowcount
 
     def fetchone(self):
         return self.rows[0] if self.rows else None
@@ -27,6 +27,9 @@ class FakeResult:
 
 
 class FakeConn:
+    cancel_after = None          # after this many stage updates, the job reads as no longer the worker's (cancelled)
+    stage_updates = 0
+
     def __init__(self, log, parent_result=None):
         self.log, self.parent_result = log, parent_result
 
@@ -40,6 +43,10 @@ class FakeConn:
         self.log.append((" ".join(sql.split()), params))
         if sql.strip().startswith("select result from jobs"):
             return FakeResult([(self.parent_result,)])
+        if sql.strip().startswith("update jobs set stage"):
+            FakeConn.stage_updates += 1
+            if FakeConn.cancel_after is not None and FakeConn.stage_updates > FakeConn.cancel_after:
+                return FakeResult([], rowcount=0)
         return FakeResult([])
 
 
@@ -80,7 +87,7 @@ def fake_run(files=True, cost=0.12, response=""):
             report.append({"k": k, "ad": {"name": f"A{k}", "headline": "h", "callouts": [{"text": "c"}]},
                            "len": 30.0, "check": "passed", "file": f if files else None,
                            **({} if files else {"error": "render failed"})})
-        run_pipeline.kwargs, run_pipeline.srcs = kw, srcs
+        run_pipeline.kwargs, run_pipeline.srcs, run_pipeline.args_cfg = kw, srcs, cfg
         return {"plan": {"summary": "s", "response_to_request": response, "claims_to_review": [{"claim": "x"}]},
                 "report": report, "notes": [], "cost": cost, "duration": 42.0,
                 "clips": [{"name": "IMG.MOV", "start": 0.0, "seconds": 42.0}]}
@@ -134,6 +141,51 @@ def test_the_result_keeps_each_ads_scorecard_and_spoken_text_and_the_teams_notes
     result = json.loads([p[1] for s, p in log if s.startswith("update jobs set status")][0])
     assert result["ads"][0]["review"] == scorecard and result["ads"][0]["spoken"] == "hello there"
     assert result["ads"][1]["review"] is None and result["ads"][1]["spoken"] == "" and result["review_cost"] == 0.07
+
+
+@pytest.fixture
+def cancellable(monkeypatch):
+    FakeConn.cancel_after, FakeConn.stage_updates = None, 0
+    yield
+    FakeConn.cancel_after, FakeConn.stage_updates = None, 0
+
+
+def test_a_cancelled_job_stops_at_its_next_step_without_finishing_or_retrying(monkeypatch, env, cancellable):
+    log, cfg, bucket, conn = env
+    reached = []
+
+    def run_pipeline(cfg, srcs, work, out_dir, client, **kw):
+        kw["progress"]("preparing")
+        reached.append("preparing")
+        FakeConn.cancel_after = FakeConn.stage_updates      # the page cancels the job now
+        kw["progress"]("planning")
+        reached.append("planning")                          # must never get here
+    monkeypatch.setattr(ac, "run_pipeline", run_pipeline)
+    assert jobs.run_job(conn, bucket, job(), cfg) == "cancelled"
+    assert reached == ["preparing"] and statuses(log) == []          # no ready, failed or queued write
+    assert not bucket.uploads and not (Path(cfg["work_dir"]) / JOB).exists()
+
+
+def test_cancel_cannot_be_swallowed_by_a_per_ad_or_check_handler():
+    assert not issubclass(jobs.Cancelled, Exception)
+
+
+def test_the_stage_update_only_touches_a_running_job_this_worker_holds():
+    log = []
+    assert jobs.set_stage(FakeConn(log), JOB, "planning") is True
+    sql = log[0][0]
+    assert "locked_by = %s" in sql and "status = 'working'" in sql
+
+
+def test_the_end_screen_wording_chosen_on_the_page_reaches_the_pipeline(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    cfg = {**cfg, "brand": {"name": "VP", "cta_line": "default line", "cta_button": "default button"}}
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    opts = {"brief": "x", "cta_line": "See it live", "cta_button": "  "}
+    assert jobs.run_job(conn, bucket, job(options=opts, sources=[{"key": f"uploads/{JOB}/clip-0", "name": "A.MOV"}]),
+                        cfg) == "ready"
+    brand = ac.run_pipeline.args_cfg["brand"]
+    assert brand == {"name": "VP", "cta_line": "See it live", "cta_button": "default button"}   # blank keeps the default
 
 
 def test_the_plan_is_given_the_teams_notes(monkeypatch, env):
