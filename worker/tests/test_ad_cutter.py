@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -252,3 +254,98 @@ def test_validate_plan_keeps_callout_that_began_on_a_skipped_filler():
 def test_quietest_handles_times_past_the_end():
     en = energy([(0, 1)], total=2)
     assert 0 <= en.quietest(5.0, 6.0) <= 2.0
+
+
+# ---------------------------------------------------------------- several clips and the request (W1, 2026-10-01)
+
+needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                                  reason="ffmpeg/ffprobe not installed")
+
+
+def make_clip(path, seconds=2.0, size="320x568", layout="mono", rate=44100):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=30:duration={seconds}",
+                    "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={rate}:duration={seconds}",
+                    "-af", f"aformat=channel_layouts={layout}", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", str(path)], check=True)
+    return path
+
+
+def test_build_prompt_carries_the_request_and_the_clip_map():
+    ws = words_from(" ".join(["w"] * 10))      # words start at 0.0, 0.5, ... 4.5 s
+    clips = [{"name": "A.MOV", "start": 0.0, "seconds": 2.0}, {"name": "B.MOV", "start": 2.0, "seconds": 3.0}]
+    p = ac.build_prompt({**CFG, "ad_count": 3, "ad_count_max": 6}, ws, "Two 15-second cold ads, {curly} braces", clips)
+    assert "Two 15-second cold ads, {curly} braces" in p
+    assert "2 clips joined in order" in p and "Never plan more than 6 ads" in p
+    assert "- Clip 1: A.MOV, 0:00 to 0:02 (words #0 to #3)" in p
+    assert "- Clip 2: B.MOV, 0:02 to 0:05 (words #4 to #9)" in p
+    assert "## Output" in p and p.count('"response_to_request"') == 1
+
+
+def test_build_prompt_without_a_request_says_so_and_cuts_long_requests():
+    p = ac.build_prompt({**CFG, "ad_count": 3}, words_from("hello world"))
+    assert "No request was given" in p and "one clip" in p
+    p = ac.build_prompt({**CFG, "ad_count": 3}, words_from("hello world"), "x" * 5000)
+    assert "x" * ac.MAX_BRIEF in p and "x" * (ac.MAX_BRIEF + 1) not in p
+
+
+def test_validate_plan_caps_the_number_of_ads_and_keeps_the_response():
+    ws = words_from(" ".join(["w"] * 60))
+    plan = make_plan()
+    plan["ads"] = [dict(plan["ads"][0], name=f"A{i}") for i in range(8)]
+    plan["response_to_request"] = "Made eight."
+    out, notes = ac.validate_plan(plan, ws, {**CFG, "ad_count_max": 6})
+    assert len(out["ads"]) == 6 and out["response_to_request"] == "Made eight."
+    assert any("only the first 6" in n for n in notes)
+    out, _ = ac.validate_plan(make_plan(), ws, CFG)
+    assert out["response_to_request"] == ""
+
+
+def test_write_notes_names_the_footage_and_the_request(tmp_path):
+    plan = {"summary": "s", "response_to_request": "Did as asked.", "claims_to_review": []}
+    ac.write_notes(tmp_path, "A.MOV + 1 more", plan, [], [], 0.1, {**CFG, "plan_model": "m"}, "make it punchy")
+    text = (tmp_path / "Review Notes.md").read_text(encoding="utf-8")
+    assert text.startswith("# Ad cuts from A.MOV + 1 more") and "make it punchy" in text and "Did as asked." in text
+
+
+def test_working_copy_args_guard_every_input_and_join_them():
+    args = ac.working_copy_args([Path("a.mov"), Path("b.mkv")], ["mov", "matroska"], 600)
+    assert args.count("-i") == 2 and args.count("-protocol_whitelist") == 2 and args.count("-t") == 2
+    assert "-enable_drefs" in args and "matroska" in args
+    fc = args[args.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=1" in fc and "[0:v]scale=1080:1920" in fc and "[1:a]aresample=48000" in fc
+    assert fc.count("channel_layouts=stereo") == 2 and fc.count("setsar=1") == 2
+
+
+@needs_ffmpeg
+def test_prepare_joins_clips_in_order_and_maps_them(tmp_path):
+    a = make_clip(tmp_path / "a.mp4", 2.0, "320x568", "mono", 44100)
+    b = make_clip(tmp_path / "b.mp4", 3.0, "640x360", "stereo", 48000)
+    media = ac.prepare([a, b], tmp_path / "work", max_seconds=60, names=["A.MOV", "B.MOV"])
+    assert 4.8 <= media["duration"] <= 5.3
+    assert [c["name"] for c in media["clips"]] == ["A.MOV", "B.MOV"]
+    assert media["clips"][0]["start"] == 0.0 and abs(media["clips"][1]["start"] - 2.0) < 0.15
+    assert abs(media["clips"][1]["seconds"] - 3.0) < 0.15
+    probe = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height,channels,sample_rate", "-of", "json",
+         str(media["full"])], capture_output=True, text=True, check=True).stdout)
+    v = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    au = next(s for s in probe["streams"] if s["codec_type"] == "audio")
+    assert (v["width"], v["height"]) == (1080, 1920) and au["channels"] == 2 and au["sample_rate"] == "48000"
+    assert media["wav"].exists() and media["proxy"].exists()
+
+
+@needs_ffmpeg
+def test_prepare_refuses_footage_over_the_total_limit(tmp_path):
+    a = make_clip(tmp_path / "a.mp4", 2.0)
+    b = make_clip(tmp_path / "b.mp4", 2.0)
+    with pytest.raises(ac.AdCutterError, match="add up to"):
+        ac.prepare([a, b], tmp_path / "work", max_seconds=3)
+
+
+@needs_ffmpeg
+def test_prepare_names_the_bad_clip(tmp_path):
+    good = make_clip(tmp_path / "a.mp4", 2.0)
+    bad = tmp_path / "b.mp4"
+    bad.write_bytes(b"not a video")
+    with pytest.raises(ac.AdCutterError, match=r"clip 2 \(B\.MOV\)"):
+        ac.prepare([good, bad], tmp_path / "work", names=["A.MOV", "B.MOV"])

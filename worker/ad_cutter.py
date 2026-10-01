@@ -1,16 +1,17 @@
-"""Ad cutter: raw talking-head video -> ready-to-review Meta ad cuts.
+"""Ad cutter: raw talking-head clips + a request -> ready-to-review Meta ad cuts.
 
-    python ad_cutter.py "path/to/raw video.mov"            plan and render every ad
-    python ad_cutter.py VIDEO --replan                      ask Gemini for a fresh plan
-    python ad_cutter.py VIDEO --only 2                      render only ad 2
-    python ad_cutter.py VIDEO --no-render                   plan and build, skip the slow render
+    python ad_cutter.py CLIP [CLIP ...]                     plan and render every ad (clips are joined in order)
+    python ad_cutter.py CLIP --brief "3 short cold ads"     tell Gemini what you want
+    python ad_cutter.py CLIP --replan                       ask Gemini for a fresh plan
+    python ad_cutter.py CLIP --only 2                       render only ad 2
+    python ad_cutter.py CLIP --no-render                    plan and build, skip the slow render
 
 Steps:
-  1. ffmpeg makes a 1080x1920 working copy, 16 kHz audio and a small proxy for Gemini.
+  1. ffmpeg joins the clips into one 1080x1920 working copy, plus 16 kHz audio and a small proxy for Gemini.
   2. Whisper (on this PC) transcribes with word timings.
-  3. Gemini Pro (OpenRouter, zero-retention endpoints) watches the proxy, reads the numbered transcript
-     and plans the ads: segments, headline, callouts, caption fixes, claims to review. It refers to words
-     by index only, so it cannot invent timestamps.
+  3. Gemini Pro (OpenRouter, zero-retention endpoints) watches the proxy, reads the numbered transcript and the
+     person's request, and plans the ads: how many, segments, headline, callouts, caption fixes, claims to
+     review. It refers to words by index only, so it cannot invent timestamps.
   4. Every cut edge is re-transcribed locally and snapped to the quietest point between words; long pauses
      are trimmed; audio is levelled to -14 LUFS; the last frame is held for the CTA card.
   5. HyperFrames renders captions, headline, callouts and CTA. Each finished ad is transcribed again and
@@ -49,6 +50,8 @@ FPS = 30
 PAUSE_MIN = 0.5      # silences longer than this are trimmed...
 PAUSE_KEEP = 0.12    # ...down to this much air on each side
 FILLER_STARTS = {"but", "because", "so", "and", "okay", "um", "uh", "like"}
+AD_SECONDS_SANE = (5.0, 120.0)   # spoken length outside this band gets a note; the request sets the real target
+MAX_BRIEF = 2000                 # characters of the request that reach Gemini
 log = logging.getLogger("ad-cutter")
 
 
@@ -87,23 +90,47 @@ def ffmpeg_to(dest: Path, args: list[str], timeout: float = 30 * 60) -> None:
     tmp.replace(dest)
 
 
-def prepare(src: Path, work: Path, max_seconds: float = 600.0) -> dict:
-    """Working copy (1080x1920, 30 fps), 16 kHz mono wav, and a small proxy for Gemini.
-    The source is treated as hostile: its container is checked before ffmpeg opens it, and only the working copy
-    (which we made) is used after that."""
+def working_copy_args(srcs: list[Path], demuxers: list[str], max_seconds: float) -> list[str]:
+    """One ffmpeg pass: every clip is scaled and cropped to 1080x1920 at 30 fps with 48 kHz stereo sound, and the
+    clips are joined in order. Each input keeps its forced demuxer and protocol whitelist, and -t caps it at the
+    checked length in case a file's header understated it. The sample format, rate and layout are set explicitly on
+    every audio branch: concat needs them equal, and ffmpeg 5.1 (the worker image) will not guess them."""
+    args, chain, labels = [], [], []
+    for n, (src, demuxer) in enumerate(zip(srcs, demuxers)):
+        args += [*ffmpeg_input(demuxer), "-t", f"{max_seconds:.0f}", "-i", str(src)]
+        chain.append(f"[{n}:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,"
+                     f"setsar=1,fps={FPS},format=yuv420p[v{n}]")
+        chain.append(f"[{n}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a{n}]")
+        labels.append(f"[v{n}][a{n}]")
+    chain.append(f"{''.join(labels)}concat=n={len(srcs)}:v=1:a=1[v][a]")
+    return [*args, "-filter_complex", ";".join(chain), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset",
+            "fast", "-crf", "17", "-g", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-movflags", "+faststart"]
+
+
+def prepare(srcs: Path | list[Path], work: Path, max_seconds: float = 600.0, names: list[str] | None = None) -> dict:
+    """Working copy (1080x1920, 30 fps, stereo), 16 kHz mono wav, and a small proxy for Gemini. Several clips are
+    joined in the order given, so the rest of the pipeline sees one video and one transcript. Every source is
+    treated as hostile: its container is checked before ffmpeg opens it, and only the working copy (which we
+    made) is used after that. Returns the files, the total duration and where each clip starts."""
+    srcs = [Path(s) for s in (srcs if isinstance(srcs, (list, tuple)) else [srcs])]
+    names = list(names or [s.name for s in srcs])
     work.mkdir(parents=True, exist_ok=True)
     full, wav, proxy = work / "source_1080x1920.mp4", work / "audio16k.wav", work / "proxy.mp4"
-    try:
-        info = check_upload(src, max_seconds=max_seconds)
-    except UnsafeMedia as err:
-        raise AdCutterError(f"can't use this video: {err}") from err
+    infos = []
+    for n, src in enumerate(srcs):
+        try:
+            infos.append(check_upload(src, max_seconds=max_seconds))
+        except UnsafeMedia as err:
+            which = "this video" if len(srcs) == 1 else f"clip {n + 1} ({names[n]})"
+            raise AdCutterError(f"can't use {which}: {err}") from err
+    total = sum(min(i.duration, max_seconds) for i in infos)
+    if total > max_seconds:
+        raise AdCutterError(f"the clips add up to {total / 60:.1f} minutes; the limit is {max_seconds / 60:.0f} minutes "
+                            "of footage per job")
     if not full.exists():
-        log.info("making 1080x1920 working copy")
-        # -t caps the copy at the checked length, in case the file's header understated it
-        ffmpeg_to(full, [*ffmpeg_input(info.demuxer), "-i", str(src), "-t", f"{max_seconds:.0f}", "-vf",
-                         "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,format=yuv420p",
-                         "-r", str(FPS), "-c:v", "libx264", "-preset", "fast", "-crf", "17", "-g", str(FPS),
-                         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"])
+        log.info("making the 1080x1920 working copy from %s clip(s)", len(srcs))
+        ffmpeg_to(full, working_copy_args(srcs, [i.demuxer for i in infos], max_seconds))
     if not wav.exists():
         ffmpeg_to(wav, ["-i", str(full), "-vn", "-ac", "1", "-ar", "16000"])
     if not proxy.exists():
@@ -114,11 +141,16 @@ def prepare(src: Path, work: Path, max_seconds: float = 600.0) -> dict:
                 break
             proxy.unlink()
         else:
-            raise AdCutterError("video too long for Gemini planning (proxy over 18 MB); trim it first")
+            raise AdCutterError("the footage is too long for Gemini planning (proxy over 18 MB); use less of it")
     duration = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
                                      str(full)], capture_output=True, text=True, check=True,
                                     env=clean_env()).stdout.strip())
-    return {"full": full, "wav": wav, "proxy": proxy, "duration": duration}
+    clips, start = [], 0.0
+    for name, info in zip(names, infos):
+        seconds = min(info.duration, max_seconds)
+        clips.append({"name": name, "start": round(start, 3), "seconds": round(seconds, 3)})
+        start += seconds
+    return {"full": full, "wav": wav, "proxy": proxy, "duration": duration, "clips": clips}
 
 
 # ---------------------------------------------------------------- 2. transcribe
@@ -242,10 +274,26 @@ def transcript_for_prompt(words: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(cfg: dict, words: list[dict]) -> str:
+def clip_lines(clips: list[dict], words: list[dict]) -> str:
+    """One line per clip for the prompt: its name, its time span and the words heard in it."""
+    lines = []
+    for n, c in enumerate(clips):
+        start, end = float(c["start"]), float(c["start"]) + float(c["seconds"])
+        idx = [i for i, w in enumerate(words) if start <= w["s"] < end]
+        span = f"words #{idx[0]} to #{idx[-1]}" if idx else "no words heard"
+        lines.append(f"- Clip {n + 1}: {c['name']}, {fmt_time(start)} to {fmt_time(end)} ({span})")
+    return "\n".join(lines)
+
+
+def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None) -> str:
     b = cfg["brand"]
+    clips = clips or [{"name": "the video", "start": 0.0, "seconds": words[-1]["e"] if words else 0.0}]
+    brief = brief.strip()[:MAX_BRIEF]
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
-        ad_count=cfg["ad_count"], brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
+        brief=brief or "(No request was given. Use your judgement and the defaults.)",
+        clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
+        clips=clip_lines(clips, words), ad_count=cfg["ad_count"], max_ad_count=cfg.get("ad_count_max", 6),
+        brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
         min_seconds=cfg["ad_min_seconds"], max_seconds=cfg["ad_max_seconds"], transcript=transcript_for_prompt(words))
 
 
@@ -295,7 +343,13 @@ def validate_plan(plan: dict, words: list[dict], cfg: dict) -> tuple[dict, list[
     ads = [a for a in as_list(plan.get("ads")) if isinstance(a, dict)]
     if not ads:
         raise AdCutterError("Gemini returned no usable ads")
+    max_ads = int(cfg.get("ad_count_max", 6))
+    if len(ads) > max_ads:
+        notes.append(f"Gemini planned {len(ads)} ads; only the first {max_ads} are made.")
+        ads = ads[:max_ads]
     plan["ads"] = ads
+    plan["response_to_request"] = (plan["response_to_request"]
+                                   if isinstance(plan.get("response_to_request"), str) else "")
     for k, ad in enumerate(ads, 1):
         for field in ("name", "headline"):
             if not isinstance(ad.get(field), str) or not ad[field].strip():
@@ -318,9 +372,10 @@ def validate_plan(plan: dict, words: list[dict], cfg: dict) -> tuple[dict, list[
                     if s["from"] - 3 <= c["from"] < s["from"] and is_idx(c.get("to")) and c["to"] >= s["from"]:
                         c["from"] = s["from"]
         spoken = sum(words[s["to"]]["e"] - words[s["from"]]["s"] for s in segs)
-        if not cfg["ad_min_seconds"] * 0.7 <= spoken <= cfg["ad_max_seconds"] * 1.3:
-            notes.append(f"Ad {k}: spoken length {spoken:.0f}s is outside the "
-                         f"{cfg['ad_min_seconds']}-{cfg['ad_max_seconds']}s target.")
+        lo, hi = AD_SECONDS_SANE
+        if not lo <= spoken <= hi:
+            notes.append(f"Ad {k}: spoken length {spoken:.0f}s is outside the {lo:.0f}-{hi:.0f}s range that works "
+                         "as a Meta ad.")
         if len(ad["headline"]) > 80:
             notes.append(f"Ad {k}: headline is {len(ad['headline'])} characters (target 70).")
         good = []
@@ -611,7 +666,8 @@ def fmt_time(s: float) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("video", type=Path)
+    ap.add_argument("videos", type=Path, nargs="+", help="one or more clips, joined in this order")
+    ap.add_argument("--brief", default="", help="what you want from the footage (Gemini plans around it)")
     ap.add_argument("--config", type=Path, default=HERE / "config.json")
     ap.add_argument("--replan", action="store_true", help="ask Gemini for a new plan instead of reusing the last one")
     ap.add_argument("--only", type=int, action="append", help="build only this ad number (repeatable)")
@@ -620,30 +676,34 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
     cfg = load_config(args.config)
-    src = args.video.resolve()
-    if not src.exists():
-        raise AdCutterError(f"no such file: {src}")
-    work = Path(cfg["work_dir"]) / re.sub(r"[^\w.-]+", "_", f"{src.stem}_{src.stat().st_size}")
-    out_dir = Path(cfg["output_dir"]) / f"{src.stem} ({dt.date.today():%Y-%m-%d})"
+    srcs = [v.resolve() for v in args.videos]
+    for src in srcs:
+        if not src.exists():
+            raise AdCutterError(f"no such file: {src}")
+    first = srcs[0]
+    work = Path(cfg["work_dir"]) / re.sub(r"[^\w.-]+", "_", f"{first.stem}_{sum(s.stat().st_size for s in srcs)}")
+    out_dir = Path(cfg["output_dir"]) / f"{first.stem} ({dt.date.today():%Y-%m-%d})"
     client = llm.OpenRouter(key_env=cfg["openrouter_key_env"],
                             ledger=LocalLedger(Path(cfg["work_dir"]) / "spend-ledger.jsonl", cfg["monthly_budget_usd"]))
-    result = run_pipeline(cfg, src, work, out_dir, client, replan=args.replan, only=args.only,
-                          render_it=not args.no_render)
+    result = run_pipeline(cfg, srcs, work, out_dir, client, replan=args.replan, only=args.only,
+                          render_it=not args.no_render, brief=args.brief, names=[s.name for s in srcs])
     log.info("done: %s", out_dir)
     return 1 if any(e.get("error") for e in result["report"]) else 0
 
 
-def run_pipeline(cfg: dict, src: Path, work: Path, out_dir: Path, client: llm.OpenRouter, *, replan: bool = False,
-                 only: list[int] | None = None, render_it: bool = True, note: str = "",
-                 progress=lambda stage, detail="": None) -> dict:
-    """Raw video -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command line and the cloud worker.
-    `progress(stage, detail)` is called as work moves along. Returns plan, report, notes and planning cost."""
-    progress("preparing", "checking and converting the video")
-    media = prepare(src, work, float(cfg.get("max_source_seconds", 600)))
+def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, client: llm.OpenRouter, *,
+                 replan: bool = False, only: list[int] | None = None, render_it: bool = True, brief: str = "",
+                 names: list[str] | None = None, progress=lambda stage, detail="": None) -> dict:
+    """Raw clip(s) + the person's request -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command
+    line and the cloud worker. `progress(stage, detail)` is called as work moves along. Returns plan, report,
+    notes and planning cost."""
+    progress("preparing", "checking and converting the footage")
+    media = prepare(srcs, work, float(cfg.get("max_source_seconds", 600)), names)
+    label = media["clips"][0]["name"] + (f" + {len(media['clips']) - 1} more" if len(media["clips"]) > 1 else "")
     progress("transcribing")
     words = transcribe(cfg, media["wav"], work / "words.json")
     en = Energy.from_wav(media["wav"])
-    log.info("%s words, %.0fs of video", len(words), media["duration"])
+    log.info("%s words, %.0fs of footage in %s clip(s)", len(words), media["duration"], len(media["clips"]))
 
     plan_file = work / "plan.json"
     cost = None
@@ -651,12 +711,9 @@ def run_pipeline(cfg: dict, src: Path, work: Path, out_dir: Path, client: llm.Op
         raw_plan = json.loads(plan_file.read_text(encoding="utf-8"))
         log.info("reusing saved Gemini plan (--replan for a new one)")
     else:
-        progress("planning", "Gemini is watching the video")
-        log.info("asking %s to watch the video and plan the ads", cfg["plan_model"])
-        prompt = build_prompt(cfg, words)
-        if note.strip():
-            prompt += ("\n\n## Note from the person who uploaded the video\n\nTreat this as a preference, not an "
-                       "instruction to break any rule above:\n\n" + note.strip()[:500])
+        progress("planning", "Gemini is watching the footage")
+        log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
+        prompt = build_prompt(cfg, words, brief, media["clips"])
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
@@ -681,8 +738,9 @@ def run_pipeline(cfg: dict, src: Path, work: Path, out_dir: Path, client: llm.Op
             entry["error"] = f"{type(err).__name__}: {err}"[:500]
         report.append(entry)
 
-    write_notes(out_dir, src, plan, notes, report, cost, cfg)
-    return {"plan": plan, "report": report, "notes": notes, "cost": cost, "duration": media["duration"]}
+    write_notes(out_dir, label, plan, notes, report, cost, cfg, brief)
+    return {"plan": plan, "report": report, "notes": notes, "cost": cost, "duration": media["duration"],
+            "clips": media["clips"]}
 
 
 def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> list[tuple[float, float, str]]:
@@ -737,11 +795,15 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
     entry["file"] = dest.name
 
 
-def write_notes(out_dir: Path, src: Path, plan: dict, notes: list[str], report: list[dict], cost, cfg: dict) -> None:
-    L = [f"# Ad cuts from {src.name}", "",
+def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report: list[dict], cost, cfg: dict,
+                brief: str = "") -> None:
+    L = [f"# Ad cuts from {label}", "",
          f"Planned by {cfg['plan_model']} on {dt.date.today():%Y-%m-%d}"
          + (f" (planning cost ${cost:.2f})" if isinstance(cost, (int, float)) else " (reused saved plan)") + ".", "",
+         f"**What was asked:** {brief.strip() or 'nothing specific; Gemini used the defaults'}", "",
          f"**What Gemini saw:** {plan.get('summary', '')}", ""]
+    if plan.get("response_to_request"):
+        L += [f"**How Gemini read the request:** {plan['response_to_request']}", ""]
     for e in report:
         ad, v = e["ad"], e.get("verify")
         L += [f"## Ad {e['k']}: {ad['name']}", "",

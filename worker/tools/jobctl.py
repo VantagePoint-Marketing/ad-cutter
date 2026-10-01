@@ -2,7 +2,7 @@
 bucket variables are set, for example `railway ssh -- sh -c 'cd /app/worker && python tools/jobctl.py status <id>'`
 (the sh -c wrapper keeps Git Bash from rewriting /app paths):
 
-    python tools/jobctl.py enqueue --job-id <uuid> --source-name IMG_3381.MOV [--note "..."]
+    python tools/jobctl.py enqueue --job-id <uuid> --source-name IMG_3381.MOV [--brief "what you want"]
     python tools/jobctl.py status <job_id>
     python tools/jobctl.py events <job_id>
     python tools/jobctl.py result <job_id>        the result without raw_plan
@@ -11,8 +11,7 @@ bucket variables are set, for example `railway ssh -- sh -c 'cd /app/worker && p
     python tools/jobctl.py spend                  every month's ledger totals
 
 Upload the source first with tools/upload_source.py (from a PC, through `railway run`); it prints the job id.
-`enqueue` only creates 'edit' jobs (a replan or rebuild needs a parent job, which the web app will provide).
-Every command prints JSON.
+`enqueue` only creates single-clip 'edit' jobs; the web page creates multi-clip ones. Every command prints JSON.
 """
 from __future__ import annotations
 
@@ -49,20 +48,24 @@ def job_uuid(value: str) -> str:
 def enqueue(args) -> dict:
     job_id = job_uuid(args.job_id)
     key = Bucket.upload_key(job_id)
-    bucket = Bucket()
-    head = bucket.s3.head_object(Bucket=bucket.name, Key=key)        # fails loudly if the upload is missing
-    options = {"note": args.note} if args.note else {}
+    size = Bucket().size(key)
+    if size is None:
+        raise SystemExit(f"nothing uploaded at {key}; run tools/upload_source.py first")
+    options = {"brief": args.brief} if args.brief else {}
+    sources = [{"key": key, "name": args.source_name, "bytes": size}]
     with connect() as conn:
-        conn.execute("insert into jobs (id, created_by, kind, source_key, source_name, options) "
-                     "values (%s, 'cli', 'edit', %s, %s, %s)", (job_id, key, args.source_name, json.dumps(options)))
-    return {"job_id": job_id, "source_key": key, "source_bytes": head["ContentLength"], "status": "queued"}
+        conn.execute("insert into jobs (id, created_by, kind, source_key, source_name, sources, options) "
+                     "values (%s, 'cli', 'edit', %s, %s, %s, %s)",
+                     (job_id, key, args.source_name, json.dumps(sources), json.dumps(options)))
+    return {"job_id": job_id, "source_key": key, "source_bytes": size, "status": "queued"}
 
 
 def status(args) -> dict:
     job_id = job_uuid(args.job_id)
     with connect() as conn:
         found = rows(conn, "select id, status, stage, stage_detail, attempts, max_attempts, error, cost_usd, created_at, "
-                           "started_at, finished_at, locked_by, source_name from jobs where id = %s", (job_id,))
+                           "started_at, finished_at, locked_by, source_name, jsonb_array_length(sources) as clips, "
+                           "options->>'brief' as brief from jobs where id = %s", (job_id,))
     return found[0] if found else {"error": "no such job"}
 
 
@@ -84,26 +87,35 @@ def result(args) -> dict:
 
 
 def requeue(args) -> dict:
-    """Put a failed job back in the queue with a fresh attempt budget, as a new run from scratch: the source must
+    """Put a failed job back in the queue with a fresh attempt budget, as a new run from scratch: the clips must
     still be in the bucket, the old result is dropped, and Gemini plans again (about $0.10 to $0.25)."""
     job_id = job_uuid(args.job_id)
+    bucket = Bucket()
+    with connect() as conn:
+        found = rows(conn, "select status, source_key, sources from jobs where id = %s", (job_id,))
+    if not found:
+        return {"error": "no such job"}
+    if found[0]["status"] != "failed":
+        return {"error": f"the job is {found[0]['status']}; only failed jobs can be requeued"}
+    keys = [s["key"] for s in (found[0]["sources"] or [])] or [found[0]["source_key"]]
+    missing = [k for k in keys if bucket.size(k) is None]
+    if missing:
+        return {"error": f"the upload is no longer in the bucket: {', '.join(missing)}"}
     with connect() as conn, conn.transaction():
         done = rows(conn, "update jobs set status = 'queued', attempts = 0, max_attempts = default, stage = null, "
                           "stage_detail = null, locked_by = null, heartbeat_at = null, started_at = null, "
                           "finished_at = null, error = null, result = null "
                           "where id = %s and status = 'failed' returning id", (job_id,))
         if not done:
-            found = rows(conn, "select status from jobs where id = %s", (job_id,))
-            return {"error": f"the job is {found[0]['status']}; only failed jobs can be requeued" if found
-                    else "no such job"}
+            return {"error": "the job changed status while requeueing; look at it again"}
         conn.execute("insert into job_events (job_id, message) values (%s, 'requeued by cli')", (job_id,))
     return {"job_id": job_id, "status": "queued"}
 
 
 def list_jobs(args) -> list[dict]:
     with connect() as conn:
-        return rows(conn, "select id, status, stage, attempts, source_name, cost_usd, created_at, finished_at from jobs "
-                          "order by created_at desc limit %s", (args.limit,))
+        return rows(conn, "select id, status, stage, attempts, created_by, source_name, jsonb_array_length(sources) as clips, "
+                          "cost_usd, created_at, finished_at from jobs order by created_at desc limit %s", (args.limit,))
 
 
 def spend(args) -> dict:
@@ -120,7 +132,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("enqueue")
     p.add_argument("--job-id", required=True)
     p.add_argument("--source-name", required=True)
-    p.add_argument("--note", default="")
+    p.add_argument("--brief", default="", help="what the person wants from the footage (goes to Gemini)")
     p.set_defaults(fn=enqueue)
     for name, fn in (("status", status), ("events", events), ("result", result), ("requeue", requeue)):
         p = sub.add_parser(name)

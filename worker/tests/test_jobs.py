@@ -12,6 +12,8 @@ import migrate  # noqa: E402
 from budget import BudgetExceeded  # noqa: E402
 from storage import Bucket  # noqa: E402
 
+JOB = "11111111-2222-3333-4444-555555555555"
+
 
 class FakeResult:
     def __init__(self, rows):
@@ -43,9 +45,10 @@ class FakeConn:
 
 class FakeBucket:
     def __init__(self):
-        self.uploads = []
+        self.uploads, self.downloads = [], []
 
     def download(self, key, dest):
+        self.downloads.append(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"\x00\x00\x00\x18ftypisom")
         return dest
@@ -57,18 +60,18 @@ class FakeBucket:
 
 
 def job(**kw):
-    return {"id": "11111111-2222-3333-4444-555555555555", "kind": "edit", "parent_job": None,
-            "source_key": "uploads/11111111-2222-3333-4444-555555555555/source", "source_name": "IMG.MOV",
-            "options": {"note": "push the live session"}, "attempts": 1, "max_attempts": 3, **kw}
+    return {"id": JOB, "kind": "edit", "parent_job": None, "source_key": f"uploads/{JOB}/source",
+            "source_name": "IMG.MOV", "options": {"note": "push the live session"}, "attempts": 1,
+            "max_attempts": 3, "sources": [], **kw}
 
 
-def fake_run(files=True, cost=0.12):
-    def run_pipeline(cfg, src, work, out_dir, client, **kw):
+def fake_run(files=True, cost=0.12, response=""):
+    def run_pipeline(cfg, srcs, work, out_dir, client, **kw):
         work.mkdir(parents=True, exist_ok=True)
         (work / "plan.json").write_text(json.dumps({"ads": [{"name": "A"}]}), encoding="utf-8")
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "Review Notes.md").write_text("# notes", encoding="utf-8")
-        kw["progress"]("planning", "Gemini is watching the video")
+        kw["progress"]("planning", "Gemini is watching the footage")
         report = []
         for k in (1, 2):
             f = f"Ad - A{k} (2026-09-30).mp4"
@@ -77,9 +80,10 @@ def fake_run(files=True, cost=0.12):
             report.append({"k": k, "ad": {"name": f"A{k}", "headline": "h", "callouts": [{"text": "c"}]},
                            "len": 30.0, "check": "passed", "file": f if files else None,
                            **({} if files else {"error": "render failed"})})
-        run_pipeline.kwargs = kw
-        return {"plan": {"summary": "s", "claims_to_review": [{"claim": "x"}]}, "report": report, "notes": [],
-                "cost": cost, "duration": 42.0}
+        run_pipeline.kwargs, run_pipeline.srcs = kw, srcs
+        return {"plan": {"summary": "s", "response_to_request": response, "claims_to_review": [{"claim": "x"}]},
+                "report": report, "notes": [], "cost": cost, "duration": 42.0,
+                "clips": [{"name": "IMG.MOV", "start": 0.0, "seconds": 42.0}]}
     return run_pipeline
 
 
@@ -97,16 +101,53 @@ def statuses(log):
 
 def test_success_uploads_results_and_marks_ready(monkeypatch, env):
     log, cfg, bucket, conn = env
-    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    monkeypatch.setattr(ac, "run_pipeline", fake_run(response="Three cold ads, as asked."))
     assert jobs.run_job(conn, bucket, job(), cfg) == "ready"
     assert statuses(log) == ["ready"]
     keys = [k for k, _ in bucket.uploads]
-    assert "results/11111111-2222-3333-4444-555555555555/Ad - A1 (2026-09-30).mp4" in keys
+    assert f"results/{JOB}/Ad - A1 (2026-09-30).mp4" in keys
     assert keys[-1].endswith("/Review Notes.md")
     result = json.loads([p[1] for s, p in log if s.startswith("update jobs set status")][0])
     assert result["ads"][0]["file_key"].startswith("results/") and result["raw_plan"] == {"ads": [{"name": "A"}]}
-    assert ac.run_pipeline.kwargs["note"] == "push the live session" and ac.run_pipeline.kwargs["replan"] is False
-    assert not (Path(cfg["work_dir"]) / job()["id"]).exists()        # work dir always cleaned up
+    assert result["response_to_request"] == "Three cold ads, as asked." and result["clips"][0]["name"] == "IMG.MOV"
+    # an older row with only source_key: the single upload, and its note becomes the request
+    assert bucket.downloads == [f"uploads/{JOB}/source"]
+    assert ac.run_pipeline.kwargs["brief"] == "push the live session" and ac.run_pipeline.kwargs["replan"] is False
+    assert ac.run_pipeline.kwargs["names"] == ["IMG.MOV"] and [p.name for p in ac.run_pipeline.srcs] == ["clip-0.bin"]
+    assert not (Path(cfg["work_dir"]) / JOB).exists()        # work dir always cleaned up
+
+
+def test_several_clips_are_downloaded_in_order_with_their_names(monkeypatch, env):
+    _, cfg, bucket, conn = env
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    sources = [{"key": f"uploads/{JOB}/clip-0", "name": "A.MOV", "bytes": 10},
+               {"key": f"uploads/{JOB}/clip-1", "name": "B.MOV", "bytes": 20}]
+    assert jobs.run_job(conn, bucket, job(sources=sources, options={"brief": "two cold ads"}), cfg) == "ready"
+    assert bucket.downloads == [f"uploads/{JOB}/clip-0", f"uploads/{JOB}/clip-1"]
+    assert [p.name for p in ac.run_pipeline.srcs] == ["clip-0.bin", "clip-1.bin"]
+    assert ac.run_pipeline.kwargs["names"] == ["A.MOV", "B.MOV"] and ac.run_pipeline.kwargs["brief"] == "two cold ads"
+
+
+def test_a_job_may_only_read_its_own_uploads(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    other = [{"key": "uploads/99999999-2222-3333-4444-555555555555/clip-0", "name": "X.MOV"}]
+    assert jobs.run_job(conn, bucket, job(sources=other), cfg) == "failed"
+    upd = next(p for s, p in log if s.startswith("update jobs set status"))
+    assert upd[0] == "failed" and "not one of this job's uploads" in upd[2] and upd[4] is True
+    assert bucket.downloads == []
+
+
+def test_an_oversized_clip_fails_without_retry(monkeypatch, env):
+    log, cfg, bucket, conn = env
+
+    def too_big(key, dest):
+        raise ValueError("upload is 5.0 GB; the limit is 4 GB")
+    bucket.download = too_big
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    assert jobs.run_job(conn, bucket, job(), cfg) == "failed"
+    upd = next(p for s, p in log if s.startswith("update jobs set status"))
+    assert upd[0] == "failed" and "4 GB" in upd[2] and upd[4] is True
 
 
 def test_progress_is_written_to_the_job(monkeypatch, env):
@@ -179,7 +220,7 @@ def test_rebuild_reuses_the_parent_plan(monkeypatch, tmp_path):
     parent = {"raw_plan": {"ads": [{"name": "from parent"}]}}
     seen = {}
 
-    def run_pipeline(cfg, src, work, out_dir, client, **kw):
+    def run_pipeline(cfg, srcs, work, out_dir, client, **kw):
         seen["plan"] = json.loads((work / "plan.json").read_text())
         seen["only"] = kw["only"]
         raise ac.AdCutterError("stop here")
@@ -188,6 +229,16 @@ def test_rebuild_reuses_the_parent_plan(monkeypatch, tmp_path):
     jobs.run_job(lambda: FakeConn(log, parent), FakeBucket(),
                  job(kind="rebuild", parent_job="p", options={"only": [2]}), {"work_dir": str(tmp_path), "monthly_budget_usd": 1})
     assert seen == {"plan": {"ads": [{"name": "from parent"}]}, "only": [2]}
+
+
+def test_claim_rows_carry_the_clip_list():
+    assert jobs.CLAIM_SQL.strip().endswith("sources")
+    row = (JOB, "edit", None, "k", "n", {}, 1, 3, [{"key": "k"}])
+
+    class Conn:
+        def execute(self, sql, params):
+            return FakeResult([row])
+    assert jobs.claim(Conn())["sources"] == [{"key": "k"}]
 
 
 # ---------------------------------------------------------------- storage and migrations
@@ -206,7 +257,50 @@ def test_download_refuses_files_over_4gb(tmp_path):
         Bucket(client=S3(), bucket="b").download("uploads/j/source", tmp_path / "x")
 
 
+def test_a_job_owns_only_its_own_upload_keys():
+    assert Bucket.owns(JOB, f"uploads/{JOB}/source") and Bucket.owns(JOB, f"uploads/{JOB}/clip-0")
+    assert Bucket.owns(JOB, Bucket.clip_key(JOB, 9))
+    for key in (f"uploads/{JOB}/clip-10", f"uploads/{JOB}/other", "uploads/x/source",
+                f"results/{JOB}/Ad.mp4", f"uploads/{JOB}/clip-0/../../x", ""):
+        assert not Bucket.owns(JOB, key)
+    assert not Bucket.owns("not-a-job-id", "uploads/not-a-job-id/source")
+    with pytest.raises(ValueError):
+        Bucket.clip_key(JOB, 10)
+
+
+def test_signed_links_grant_one_key_and_one_method():
+    calls = []
+
+    class S3:
+        def generate_presigned_url(self, op, Params, ExpiresIn, HttpMethod=None):
+            calls.append((op, Params, ExpiresIn, HttpMethod))
+            return f"https://bucket/{Params['Key']}?signed"
+    b = Bucket(client=S3(), bucket="media")
+    assert b.put_url(f"uploads/{JOB}/clip-0").endswith("clip-0?signed")
+    assert calls[-1] == ("put_object", {"Bucket": "media", "Key": f"uploads/{JOB}/clip-0"}, 3600, "PUT")
+    b.get_url(f"results/{JOB}/Ad - A (2026-10-01).mp4", "Ad - A (2026-10-01).mp4", attachment=True)
+    assert calls[-1][1]["ResponseContentDisposition"] == 'attachment; filename="Ad - A (2026-10-01).mp4"'
+    with pytest.raises(ValueError):
+        b.get_url("results/x", 'bad"name.mp4')
+
+
+def test_size_is_none_for_a_missing_object_and_raises_otherwise():
+    from botocore.exceptions import ClientError
+
+    class S3:
+        def head_object(self, Bucket, Key):
+            if Key == "missing":
+                raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+            if Key == "forbidden":
+                raise ClientError({"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject")
+            return {"ContentLength": 42}
+    b = Bucket(client=S3(), bucket="media")
+    assert b.size("there") == 42 and b.size("missing") is None
+    with pytest.raises(ClientError):
+        b.size("forbidden")
+
+
 def test_migrations_are_found_in_order():
     names = [p.name for p in migrate.pending(set())]
-    assert names and names == sorted(names) and names[0] == "001_worker.sql"
+    assert names and names == sorted(names) and names[:2] == ["001_worker.sql", "002_web.sql"]
     assert migrate.pending(set(names)) == []

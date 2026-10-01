@@ -46,7 +46,37 @@ export default defineRailway((ctx) => {
     },
   });
 
+  // The web page: one shared link (https://<domain>/<APP_LINK_TOKEN>/), no accounts. It uses the same Postgres and
+  // bucket as the worker; the browser sends clips straight into the bucket through short-lived signed links, and the
+  // page sets the bucket's CORS rule to its own address when it starts (RAILWAY_PUBLIC_DOMAIN).
+  const web = service("web", {
+    source: github(REPO, { branch: production ? "main" : "w0-worker-cloud" }),
+    build: {
+      builder: "DOCKERFILE",
+      dockerfilePath: "web/Dockerfile", // build context is the repo root; the image also copies worker/storage.py
+      watchPatterns: ["web/**", "worker/storage.py"],
+    },
+    deploy: {
+      startCommand: "python app.py",
+      healthcheckPath: "/healthz",
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 10,
+    },
+    networking: {
+      serviceDomains: { [production ? "video-agent.up.railway.app" : "video-agent-staging.up.railway.app"]: {} },
+    },
+    env: {
+      DATABASE_URL: db.env.DATABASE_URL,
+      BUCKET: ref(media, "BUCKET"),
+      ENDPOINT: ref(media, "ENDPOINT"),
+      REGION: ref(media, "REGION"),
+      ACCESS_KEY_ID: ref(media, "ACCESS_KEY_ID"),
+      SECRET_ACCESS_KEY: ref(media, "SECRET_ACCESS_KEY"),
+      APP_LINK_TOKEN: preserve(), // the secret part of the link; set by hand in Railway, never in a file
+    },
+  });
+
   return project("App · Video Agent", {
-    resources: [db, media, worker],
+    resources: [db, media, worker, web],
   });
 });

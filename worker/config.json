@@ -18,6 +18,7 @@
   },
 
   "ad_count": 3,
+  "ad_count_max": 6,
   "ad_min_seconds": 20,
   "ad_max_seconds": 75,
   "cta_seconds": 3,

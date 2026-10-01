@@ -44,7 +44,7 @@ update jobs set status = 'working', locked_by = %(worker)s, heartbeat_at = now()
        started_at = coalesce(started_at, now()), stage = 'starting', stage_detail = null, error = null
  where id = (select id from jobs where status = 'queued' and attempts < max_attempts
               order by created_at for update skip locked limit 1)
-returning id::text, kind, parent_job::text, source_key, source_name, options, attempts, max_attempts
+returning id::text, kind, parent_job::text, source_key, source_name, options, attempts, max_attempts, sources
 """
 REQUEUE_STALE_SQL = """
 update jobs set status = case when attempts < max_attempts then 'queued' else 'failed' end,
@@ -122,9 +122,10 @@ def build_result(run: dict, uploaded: dict[int, str], notes_key: str | None) -> 
                     "callouts": [c["text"] for c in ad.get("callouts", [])], "primary_text": ad.get("primary_text", ""),
                     "seconds": round(e["len"], 1), "layout_check": (e["check"].splitlines() or ["not run"])[0],
                     "verify": e.get("verify"), "file_key": uploaded.get(e["k"]), "error": e.get("error")})
-    return {"summary": plan.get("summary", ""), "ads": ads, "claims_to_review": plan.get("claims_to_review", []),
+    return {"summary": plan.get("summary", ""), "response_to_request": plan.get("response_to_request", ""),
+            "ads": ads, "claims_to_review": plan.get("claims_to_review", []),
             "pipeline_notes": run["notes"], "notes_key": notes_key, "planning_cost": run["cost"],
-            "source_seconds": round(run["duration"], 1)}
+            "source_seconds": round(run["duration"], 1), "clips": run.get("clips", [])}
 
 
 def plain_error(err: BaseException) -> str:
@@ -159,7 +160,18 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
 
     try:
         db(set_stage, job_id, "downloading")
-        src = bucket.download(job["source_key"], work / "upload" / "source.bin")
+        # the clips, in the order the person gave them; older rows have only source_key
+        clips = job.get("sources") or [{"key": job["source_key"], "name": job["source_name"]}]
+        srcs, names = [], []
+        for n, clip in enumerate(clips):
+            key = str(clip.get("key", ""))
+            if not Bucket.owns(job_id, key):            # a job may only ever read its own uploads
+                raise ac.AdCutterError(f"clip {n + 1} is not one of this job's uploads ({key})")
+            try:
+                srcs.append(bucket.download(key, work / "upload" / f"clip-{n}.bin"))
+            except ValueError as err:                   # over the size limit: a problem with the upload, no retry
+                raise ac.AdCutterError(f"clip {n + 1}: {err}") from err
+            names.append(str(clip.get("name") or f"clip {n + 1}"))
         if job["kind"] == "rebuild" and job["parent_job"]:
             parent = db(lambda c: c.execute("select result from jobs where id = %s", (job["parent_job"],)).fetchone())
             raw = (parent[0] or {}).get("raw_plan") if parent else None
@@ -167,8 +179,9 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
                 (work / "pipeline").mkdir()
                 (work / "pipeline" / "plan.json").write_text(json.dumps(raw), encoding="utf-8")
         client = llm.OpenRouter(KEY_ENV, PostgresLedger(conn_factory, KEY_NAME, cfg["monthly_budget_usd"], job_id))
-        run = ac.run_pipeline(cfg, src, work / "pipeline", work / "out", client,
-                              replan=job["kind"] == "replan", only=opts.get("only"), note=str(opts.get("note", "")),
+        run = ac.run_pipeline(cfg, srcs, work / "pipeline", work / "out", client,
+                              replan=job["kind"] == "replan", only=opts.get("only"),
+                              brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
                               progress=lambda stage, detail="": db(set_stage, job_id, stage, detail))
         db(set_stage, job_id, "uploading")
         uploaded = {}
@@ -214,7 +227,7 @@ def claim(conn) -> dict | None:
     row = conn.execute(CLAIM_SQL, {"worker": WORKER_ID}).fetchone()
     if not row:
         return None
-    keys = ("id", "kind", "parent_job", "source_key", "source_name", "options", "attempts", "max_attempts")
+    keys = ("id", "kind", "parent_job", "source_key", "source_name", "options", "attempts", "max_attempts", "sources")
     return dict(zip(keys, row))
 
 
@@ -281,6 +294,7 @@ def selftest() -> int:
         return f"${remaining:.2f} left this month"
     check("openrouter key", key_check)
     check("ffmpeg", lambda: shutil.which("ffmpeg"))
+    check("working copy chain", prepare_chain_works)
     check("ad body chain", body_chain_renders)
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)
@@ -329,6 +343,30 @@ def body_chain_renders() -> str:
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return ", ".join(sizes)
+
+
+def prepare_chain_works() -> str:
+    """Join two generated clips (mono and stereo, different sizes and rates) through the real working-copy chain,
+    then make the wav and the Gemini proxy from the result. Filter negotiation differs between ffmpeg versions
+    (5.1 in this image, 8 on the PC), and a PC test can't prove the container accepts the chain."""
+    work = Path(worker_config()["work_dir"]) / "selftest-prepare"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    try:
+        srcs = []
+        for n, (layout, size, rate) in enumerate((("mono", "320x568", 44100), ("stereo", "640x360", 48000))):
+            src = work / f"in{n}.mp4"
+            ac.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=30:duration=2",
+                    "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={rate}:duration=2",
+                    "-af", f"aformat=channel_layouts={layout}", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", str(src)], timeout=120)
+            srcs.append(src)
+        media = ac.prepare(srcs, work / "pipeline", max_seconds=60, names=["mono.mp4", "stereo.mp4"])
+        if not 3.5 <= media["duration"] <= 4.5 or len(media["clips"]) != 2:
+            raise RuntimeError(f"joined {len(media['clips'])} clips into {media['duration']:.1f}s; expected 2 clips, 4s")
+        return f"2 clips joined into {media['duration']:.1f}s, proxy {media['proxy'].stat().st_size // 1024} KB"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def smoke_render() -> str:

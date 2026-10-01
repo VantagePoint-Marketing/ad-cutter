@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Video Agent</title>
+<style>
+  :root { --ink: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --bg: #f5f5f7; --card: #fff; --blue: #0071e3;
+          --red: #c0392b; --amber: #b7791f; --amber-bg: #fff8e6; --green: #1a7f37; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; margin-bottom: 16px; }
+  label.h { display: block; font-weight: 600; margin-bottom: 8px; }
+  .hint { color: var(--muted); font-size: 14px; }
+  textarea { width: 100%; min-height: 110px; resize: vertical; border: 1px solid var(--line); border-radius: 12px;
+             padding: 12px 14px; font: inherit; color: inherit; background: #fafafa; }
+  textarea:focus, .drop:focus-within { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,113,227,.15); }
+  .drop { border: 1.5px dashed #c7c7cc; border-radius: 12px; padding: 22px; text-align: center; cursor: pointer;
+          background: #fafafa; transition: border-color .15s; }
+  .drop.over { border-color: var(--blue); background: #f0f6ff; }
+  .drop input { display: none; }
+  .files { list-style: none; margin: 12px 0 0; padding: 0; }
+  .files li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .files li:first-child { border-top: 0; }
+  .files .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files .meta { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .files button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; width: 110px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s; }
+  .btn { display: inline-block; border: 0; border-radius: 980px; padding: 12px 24px; font: inherit; font-weight: 600;
+         background: var(--blue); color: #fff; cursor: pointer; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.ghost { background: transparent; color: var(--blue); padding: 8px 12px; }
+  .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .status { display: flex; align-items: center; gap: 12px; }
+  .spin { width: 18px; height: 18px; border: 2.5px solid var(--line); border-top-color: var(--blue); border-radius: 50%;
+          animation: spin .9s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+          padding: 3px 9px; border-radius: 980px; background: #eef1f5; color: #3a3a3c; }
+  .chip.ok { background: #e6f4ea; color: var(--green); }  .chip.bad { background: #fdecea; color: var(--red); }
+  .ad { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
+  .ad video { width: 200px; aspect-ratio: 9 / 16; background: #000; border-radius: 12px; }
+  .ad h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.01em; }
+  .ad p { margin: 8px 0; }
+  .ad .copy { white-space: pre-wrap; background: #fafafa; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+  .ad .acts { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+  a.dl { color: var(--blue); font-weight: 600; text-decoration: none; }
+  .claims { background: var(--amber-bg); border: 1px solid #f3e2b6; border-radius: 12px; padding: 14px 18px; }
+  .claims h3 { margin: 0 0 6px; font-size: 16px; color: var(--amber); }
+  .claims ul { margin: 0; padding-left: 18px; }
+  .recent { list-style: none; margin: 0; padding: 0; }
+  .recent li { padding: 12px 0; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; cursor: pointer; }
+  .recent li:first-child { border-top: 0; }
+  .recent .when { color: var(--muted); font-size: 13px; white-space: nowrap; min-width: 92px; }
+  .recent .what { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .brief { color: var(--muted); }
+  h2 { font-size: 20px; margin: 32px 0 10px; letter-spacing: -0.01em; }
+  details summary { cursor: pointer; color: var(--muted); }
+  @media (max-width: 560px) { .ad { grid-template-columns: 1fr; } .ad video { width: 100%; max-width: 260px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Video Agent</h1>
+  <p class="sub">Upload raw clips, say what you want, and Gemini plans and cuts the ads.</p>
+
+  <section id="form" class="card">
+    <label class="h">Clips</label>
+    <div class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" multiple accept="video/mp4,video/quicktime,video/x-matroska,video/webm,.mp4,.mov,.mkv,.webm">
+      <div><strong>Drop clips here</strong> or click to choose</div>
+      <div class="hint">MP4 or MOV from a phone. Up to 10 clips and 10 minutes of footage in total, under 4 GB each.</div>
+    </div>
+    <ul class="files" id="files"></ul>
+
+    <label class="h" for="brief" style="margin-top:22px">What do you want?</label>
+    <textarea id="brief" maxlength="2000" placeholder="For example: Three 30-second ads for cold traffic about why common indicators lag. Keep the whiteboard moment. One should open with the question he asks near the end."></textarea>
+    <div class="hint">Gemini decides the rest: how many ads, how long, which parts to use, the headline, callouts and ad copy. Leave it blank and it uses its own judgement.</div>
+
+    <div class="row">
+      <button class="btn" id="go" disabled>Make ads</button>
+      <span class="hint" id="total"></span>
+    </div>
+    <p class="err" id="formErr"></p>
+  </section>
+
+  <section id="progress" class="card" hidden>
+    <div class="status"><div class="spin" id="spinner"></div><div><strong id="pTitle">Uploading</strong><div class="hint" id="pText"></div></div></div>
+    <ul class="files" id="pFiles"></ul>
+    <p class="err" id="pErr"></p>
+    <div class="row" id="pActs" hidden><button class="btn ghost" id="again">Start another</button></div>
+  </section>
+
+  <section id="result" hidden></section>
+
+  <h2>Recent</h2>
+  <div class="card"><ul class="recent" id="recent"><li class="hint">Nothing yet.</li></ul></div>
+</main>
+
+<script>
+(() => {
+  const BASE = "/" + location.pathname.split("/")[1];
+  const $ = (id) => document.getElementById(id);
+  const MAX_CLIPS = 10, MAX_BYTES = 4 * 1024 ** 3, MAX_MINUTES = 10;
+  let files = [];            // {file, seconds}
+  let pollTimer = null;
+
+  // ---------------------------------------------------------------- picking clips
+  const drop = $("drop"), input = $("file");
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+  input.addEventListener("change", () => { addFiles(input.files); input.value = ""; });
+
+  function addFiles(list) {
+    for (const f of list) {
+      if (files.length >= MAX_CLIPS) { $("formErr").textContent = `Up to ${MAX_CLIPS} clips per job.`; break; }
+      if (files.some((x) => x.file.name === f.name && x.file.size === f.size)) continue;
+      const entry = { file: f, seconds: null };
+      files.push(entry);
+      readDuration(f).then((s) => { entry.seconds = s; renderFiles(); });
+    }
+    renderFiles();
+  }
+
+  function readDuration(file) {
+    return new Promise((resolve) => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => { URL.revokeObjectURL(v.src); resolve(isFinite(v.duration) ? v.duration : null); };
+      v.onerror = () => { URL.revokeObjectURL(v.src); resolve(null); };
+      v.src = URL.createObjectURL(file);
+    });
+  }
+
+  const fmtSize = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : Math.round(b / 1024 ** 2) + " MB";
+  const fmtTime = (s) => s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function renderFiles() {
+    $("files").innerHTML = files.map((x, i) =>
+      `<li><span class="name">${esc(x.file.name)}</span><span class="meta">${fmtTime(x.seconds)} · ${fmtSize(x.file.size)}</span>` +
+      `<button title="Remove" data-i="${i}">×</button></li>`).join("");
+    $("files").querySelectorAll("button").forEach((b) => b.onclick = () => { files.splice(+b.dataset.i, 1); renderFiles(); });
+    const secs = files.reduce((a, x) => a + (x.seconds || 0), 0);
+    const tooBig = files.find((x) => x.file.size > MAX_BYTES);
+    let err = "";
+    if (tooBig) err = `${tooBig.file.name} is over 4 GB.`;
+    else if (secs > MAX_MINUTES * 60) err = `That is ${fmtTime(secs)} of footage; the limit is ${MAX_MINUTES} minutes per job.`;
+    $("formErr").textContent = err;
+    $("total").textContent = files.length ? `${files.length} clip${files.length > 1 ? "s" : ""}, ${fmtTime(secs)} in total` : "";
+    $("go").disabled = !files.length || !!err;
+  }
+
+  // ---------------------------------------------------------------- making ads
+  $("go").onclick = async () => {
+    $("go").disabled = true;
+    $("formErr").textContent = "";
+    const brief = $("brief").value.trim();
+    try {
+      const job = await api("POST", `${BASE}/api/jobs`, { brief, clips: files.map((x) => ({ name: x.file.name, bytes: x.file.size })) });
+      $("form").hidden = true;
+      showProgress("Uploading", "Keep this tab open until the upload finishes.");
+      $("pFiles").innerHTML = job.clips.map((c) =>
+        `<li><span class="name">${esc(c.name)}</span><span class="bar"><i id="bar${c.n}"></i></span><span class="meta" id="pct${c.n}">0%</span></li>`).join("");
+      for (const c of job.clips) {
+        await putFile(c.put_url, files[c.n].file, (p) => { $("bar" + c.n).style.width = (p * 100).toFixed(0) + "%"; $("pct" + c.n).textContent = (p * 100).toFixed(0) + "%"; });
+        $("pct" + c.n).textContent = "done";
+      }
+      $("pFiles").innerHTML = "";
+      await api("POST", `${BASE}/api/jobs/${job.job_id}/start`);
+      location.hash = job.job_id;
+      watch(job.job_id);
+    } catch (err) {
+      if ($("form").hidden) { $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false; }
+      else { $("formErr").textContent = err.message; $("go").disabled = false; }
+    }
+  };
+
+  function putFile(url, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`The upload of ${file.name} failed (${xhr.status}). Please try again.`));
+      xhr.onerror = () => reject(new Error(`The upload of ${file.name} failed (network or permission problem). Please try again.`));
+      xhr.send(file);
+    });
+  }
+
+  async function api(method, url, body) {
+    const res = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* no body */ }
+    if (!res.ok) throw new Error((data && (data.detail || data.error)) || `Request failed (${res.status})`);
+    return data;
+  }
+
+  // ---------------------------------------------------------------- watching a job
+  const STAGE = {
+    queued: (j) => j.ahead ? `Waiting in line: ${j.ahead} job${j.ahead > 1 ? "s" : ""} ahead of this one.` : "Waiting for the editor to pick it up.",
+    working: () => "Working.", starting: () => "Starting.", downloading: () => "Fetching your clips.",
+    preparing: () => "Preparing the footage.", transcribing: () => "Listening to the footage.",
+    planning: () => "Gemini is watching the footage and planning the ads.",
+    rendering: (j) => "Rendering" + (j.stage_detail ? ", " + j.stage_detail : "") + ".", uploading: () => "Saving the ads.",
+  };
+
+  function showProgress(title, text) {
+    $("progress").hidden = false; $("result").hidden = true; $("spinner").hidden = false;
+    $("pTitle").textContent = title; $("pText").textContent = text; $("pErr").textContent = ""; $("pActs").hidden = true;
+  }
+
+  function watch(jobId) {
+    clearTimeout(pollTimer);
+    const tick = async () => {
+      try {
+        const j = await api("GET", `${BASE}/api/jobs/${jobId}`);
+        render(j);
+        if (j.status !== "ready" && j.status !== "failed") pollTimer = setTimeout(tick, 4000);
+        else loadRecent();
+      } catch (err) {
+        $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false;
+      }
+    };
+    tick();
+  }
+
+  function render(j) {
+    $("form").hidden = true;
+    if (j.status === "ready" || j.status === "failed") { $("progress").hidden = true; renderResult(j); return; }
+    const key = (j.status === "working" && j.stage) ? j.stage : j.status;
+    const text = (STAGE[key] || (() => "Working."))(j);
+    showProgress(j.status === "queued" ? "In the queue" : "Making your ads", text + " Usually 10 to 20 minutes for a few minutes of footage. You can close this page and come back: the job is listed under Recent.");
+  }
+
+  function renderResult(j) {
+    const r = j.result || {};
+    const h = [];
+    h.push(`<div class="card"><div class="status"><span class="chip ${j.status === "ready" ? "ok" : "bad"}">${j.status === "ready" ? "Ready" : "Failed"}</span>` +
+            `<strong>${esc(j.label)}</strong><span class="hint">${esc(j.clips.join(", "))}</span></div>`);
+    if (j.brief) h.push(`<p><span class="hint">Asked for:</span> ${esc(j.brief)}</p>`);
+    if (j.error) h.push(`<p class="err">${esc(j.error)}</p>`);
+    if (r.response_to_request) h.push(`<p><span class="hint">How Gemini read it:</span> ${esc(r.response_to_request)}</p>`);
+    if (r.summary) h.push(`<p><span class="hint">What it saw:</span> ${esc(r.summary)}</p>`);
+    const acts = [];
+    if (r.notes_url) acts.push(`<a class="dl" href="${esc(r.notes_url)}">Download the review notes</a>`);
+    acts.push(`<button class="btn ghost" id="another">Start another</button>`);
+    h.push(`<div class="acts row">${acts.join("")}</div></div>`);
+    for (const ad of r.ads || []) {
+      h.push(`<div class="card ad">` +
+        (ad.preview_url ? `<video controls playsinline preload="metadata" src="${esc(ad.preview_url)}"></video>` : `<div></div>`) +
+        `<div><h3>${esc(ad.name)}</h3>` +
+        `<p><span class="chip">${esc(ad.funnel_stage || "ad")}</span> <span class="hint">${fmtTime(ad.seconds)}${ad.speech_match != null ? ` · captions match speech ${(ad.speech_match * 100).toFixed(0)}%` : ""}</span></p>` +
+        (ad.error ? `<p class="err">${esc(ad.error)}</p>` : "") +
+        `<p><strong>Headline:</strong> ${esc(ad.headline)}</p>` +
+        (ad.angle ? `<p class="hint">${esc(ad.angle)}</p>` : "") +
+        (ad.callouts && ad.callouts.length ? `<p><strong>Callouts:</strong> ${ad.callouts.map((c) => esc(c.replace(/\n/g, " / "))).join(" · ")}</p>` : "") +
+        (ad.primary_text ? `<p><strong>Primary text</strong></p><div class="copy">${esc(ad.primary_text)}</div>` : "") +
+        `<div class="acts">${ad.download_url ? `<a class="dl" href="${esc(ad.download_url)}">Download ${esc(ad.file)}</a>` : ""}</div></div></div>`);
+    }
+    if (r.claims_to_review && r.claims_to_review.length) {
+      h.push(`<div class="card claims"><h3>Claims to get approved before running</h3><ul>` +
+        r.claims_to_review.map((c) => `<li><strong>${esc(c.ad)}:</strong> “${esc(c.claim)}” <span class="hint">${esc(c.reason)}</span></li>`).join("") + `</ul></div>`);
+    }
+    if (r.pipeline_notes && r.pipeline_notes.length) {
+      h.push(`<details class="card"><summary>Editor notes (${r.pipeline_notes.length})</summary><ul>${r.pipeline_notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>`);
+    }
+    $("result").innerHTML = h.join("");
+    $("result").hidden = false;
+    $("another").onclick = reset;
+  }
+
+  function reset() {
+    clearTimeout(pollTimer);
+    files = []; renderFiles(); $("brief").value = "";
+    $("result").hidden = true; $("progress").hidden = true; $("form").hidden = false; $("go").disabled = true;
+    history.replaceState(null, "", location.pathname);
+  }
+  $("again").onclick = reset;
+
+  // ---------------------------------------------------------------- recent jobs
+  const when = (iso) => {
+    const d = new Date(iso), diff = (Date.now() - d) / 60000;
+    if (diff < 1) return "just now";
+    if (diff < 60) return `${Math.round(diff)} min ago`;
+    if (diff < 60 * 24) return `${Math.round(diff / 60)} h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  const STATUS_WORD = { queued: "in line", working: "working", ready: "ready", failed: "failed", approved: "approved", cancelled: "cancelled" };
+
+  async function loadRecent() {
+    try {
+      const data = await api("GET", `${BASE}/api/jobs`);
+      if (!data.jobs.length) return;
+      $("recent").innerHTML = data.jobs.map((j) =>
+        `<li data-id="${esc(j.job_id)}"><span class="when">${when(j.created_at)}</span><span class="what"><strong>${esc(j.label)}</strong>` +
+        (j.brief ? ` <span class="brief">— ${esc(j.brief)}</span>` : "") + `</span><span class="chip ${j.status === "ready" ? "ok" : j.status === "failed" ? "bad" : ""}">${STATUS_WORD[j.status] || esc(j.status)}</span></li>`).join("");
+      $("recent").querySelectorAll("li").forEach((li) => li.onclick = () => { location.hash = li.dataset.id; watch(li.dataset.id); window.scrollTo({ top: 0, behavior: "smooth" }); });
+    } catch (err) { /* the list is a convenience; keep the page usable */ }
+  }
+
+  window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id) watch(id); });
+  loadRecent();
+  if (location.hash.length > 1) watch(location.hash.slice(1));
+})();
+</script>
+</body>
+</html>
