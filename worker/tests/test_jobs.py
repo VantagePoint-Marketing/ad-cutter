@@ -117,6 +117,33 @@ def test_success_uploads_results_and_marks_ready(monkeypatch, env):
     assert not (Path(cfg["work_dir"]) / JOB).exists()        # work dir always cleaned up
 
 
+def test_the_result_keeps_each_ads_scorecard_and_spoken_text_and_the_teams_notes_reach_the_plan(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    scorecard = {"scores": {"hook": 4}, "problems": [], "verdict": "ok", "look": False}
+    inner = fake_run()
+
+    def run_pipeline(cfg, srcs, work, out_dir, client, **kw):
+        out = inner(cfg, srcs, work, out_dir, client, **kw)
+        out["report"][0].update(spoken="hello there", review=scorecard)
+        out["review_cost"] = 0.07
+        return out
+    run_pipeline.kwargs = None
+    monkeypatch.setattr(ac, "run_pipeline", run_pipeline)
+    monkeypatch.setattr(jobs.feedback, "team_notes", lambda c: "- Good (\"A1\"): no note")
+    assert jobs.run_job(conn, bucket, job(), cfg) == "ready"
+    result = json.loads([p[1] for s, p in log if s.startswith("update jobs set status")][0])
+    assert result["ads"][0]["review"] == scorecard and result["ads"][0]["spoken"] == "hello there"
+    assert result["ads"][1]["review"] is None and result["ads"][1]["spoken"] == "" and result["review_cost"] == 0.07
+
+
+def test_the_plan_is_given_the_teams_notes(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    monkeypatch.setattr(jobs.feedback, "team_notes", lambda c: "- Not right (\"A1\"): \"too slow\"")
+    jobs.run_job(conn, bucket, job(), cfg)
+    assert ac.run_pipeline.kwargs["team_notes"] == "- Not right (\"A1\"): \"too slow\""
+
+
 def test_several_clips_are_downloaded_in_order_with_their_names(monkeypatch, env):
     _, cfg, bucket, conn = env
     monkeypatch.setattr(ac, "run_pipeline", fake_run())
@@ -322,4 +349,5 @@ def test_size_is_none_for_a_missing_object_and_raises_otherwise():
 def test_migrations_are_found_in_order():
     names = [p.name for p in migrate.pending(set())]
     assert names and names == sorted(names) and names[:2] == ["001_worker.sql", "002_web.sql"]
+    assert "004_feedback.sql" in names
     assert migrate.pending(set(names)) == []

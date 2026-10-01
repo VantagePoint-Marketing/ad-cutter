@@ -33,6 +33,7 @@ class FakeDB:
     def __init__(self):
         self.jobs, self.events = {}, []
         self.library_sources, self.library_notes, self.library_missing = [], [], False
+        self.feedback, self.feedback_missing = [], False        # rows of (job_id, ad_k, verdict, note), oldest first
 
     def connect(self):
         return self
@@ -72,6 +73,18 @@ class FakeDB:
                 job["status"] = "queued"
                 return Cursor(["id"], [(job["id"],)])      # "returning id": one row when it flipped
             return Cursor(["id"], [])
+        if "ad_feedback" in sql:
+            if self.feedback_missing:
+                import psycopg
+                raise psycopg.errors.UndefinedTable('relation "ad_feedback" does not exist')
+            if sql.startswith("insert into ad_feedback"):
+                self.feedback.append(tuple(params))
+                return Cursor([], [])
+            if sql.startswith("select count(*) from ad_feedback"):
+                return Cursor(["count"], [(sum(1 for f in self.feedback if f[0] == params[0]),)])
+            if sql.startswith("select distinct on (ad_k)"):          # the newest click for each ad of one job
+                newest = {f[1]: f for f in self.feedback if f[0] == params[0]}
+                return Cursor(["ad_k", "verdict", "note"], [(k, f[2], f[3]) for k, f in sorted(newest.items())])
         if self.library_missing and ("ref_sources" in sql or "ref_notes" in sql):
             import psycopg
             raise psycopg.errors.UndefinedTable('relation "ref_sources" does not exist')
@@ -313,3 +326,73 @@ def test_recent_list_skips_jobs_still_uploading(client):
     assert jobs[0]["label"] == "A.MOV + 1 more" and jobs[0]["brief"] == "first" and jobs[0]["clips"] == 2
     assert b not in [j["job_id"] for j in jobs]
 
+
+
+# ---------------------------------------------------------------- the self-check and the feedback buttons
+
+REVIEW = {"scores": {a: 4 for a in ("hook", "cuts", "story", "captions", "overlays", "request_fit", "compliance")},
+          "problems": [{"at_s": 3.2, "area": "captions", "what": "Words run together.", "fix": "Split the group."}],
+          "verdict": "Solid.", "look": False}
+
+
+def ready_job(client):
+    jid = new_job(client)["job_id"]
+    client.db.jobs[jid].update(status="ready", result={
+        "summary": "s", "ads": [
+            {"k": 1, "name": "Lag", "headline": "H", "seconds": 30.0, "review": REVIEW, "spoken": "never shown",
+             "file_key": f"results/{jid}/Ad - Lag.mp4"},
+            {"k": 2, "name": "Broken", "headline": "H2", "seconds": 0, "file_key": None, "error": "render failed"}]})
+    return jid
+
+
+def test_the_scorecard_and_the_saved_verdict_come_with_each_ad(client):
+    jid = ready_job(client)
+    ads = client.get(f"/{TOKEN}/api/jobs/{jid}").json()["result"]["ads"]
+    assert ads[0]["review"]["scores"]["hook"] == 4 and ads[0]["review"]["problems"][0]["area"] == "captions"
+    assert ads[0]["review"]["look"] is False and ads[0]["feedback"] is None and "spoken" not in ads[0]
+    assert ads[1]["review"] is None
+    client.db.feedback += [(jid, 1, "bad", "first thought"), (jid, 1, "good", "changed my mind")]
+    assert client.get(f"/{TOKEN}/api/jobs/{jid}").json()["result"]["ads"][0]["feedback"] == \
+           {"verdict": "good", "note": "changed my mind"}
+
+
+def test_feedback_is_saved_with_a_tidy_note(client):
+    jid = ready_job(client)
+    res = client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "bad", "note": "  Captions \n\n too small  "})
+    assert res.status_code == 200 and res.json() == {"k": 1, "verdict": "bad", "note": "Captions too small"}
+    assert client.db.feedback == [(jid, 1, "bad", "Captions too small")]
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "good"}).json()["note"] == ""
+
+
+@pytest.mark.parametrize("body", [{"verdict": "meh"}, {"note": "no verdict"}, {"verdict": "bad", "note": "x" * 1001}])
+def test_bad_feedback_is_refused(client, body):
+    jid = ready_job(client)
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json=body).status_code in (400, 422)
+    assert client.db.feedback == []
+
+
+def test_feedback_only_for_a_real_finished_ad_of_a_ready_job(client):
+    jid = ready_job(client)
+    url = lambda job, k: f"/{TOKEN}/api/jobs/{job}/ads/{k}/feedback"
+    ok = {"verdict": "good"}
+    assert client.post(url(jid, 2), json=ok).status_code == 404            # that ad never rendered
+    assert client.post(url(jid, 3), json=ok).status_code == 404            # no such ad
+    assert client.post(url(jid, 0), json=ok).status_code == 422 and client.post(url(jid, 21), json=ok).status_code == 422
+    assert client.post(url("00000000-0000-0000-0000-000000000000", 1), json=ok).status_code == 404
+    other = new_job(client)["job_id"]                                      # still uploading
+    assert client.post(url(other, 1), json=ok).status_code == 404
+    assert client.post(f"/wrong-token-1234567/api/jobs/{jid}/ads/1/feedback", json=ok).status_code == 404
+    assert client.db.feedback == []
+
+
+def test_one_job_takes_a_limited_amount_of_feedback(client):
+    jid = ready_job(client)
+    client.db.feedback = [(jid, 1, "good", "")] * web.FEEDBACK_PER_JOB
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "bad"}).status_code == 429
+
+
+def test_the_page_still_works_before_the_feedback_table_exists(client):
+    jid = ready_job(client)
+    client.db.feedback_missing = True
+    ads = client.get(f"/{TOKEN}/api/jobs/{jid}").json()["result"]["ads"]
+    assert ads[0]["feedback"] is None and ads[0]["review"]["scores"]["cuts"] == 4

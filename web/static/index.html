@@ -54,6 +54,26 @@
   .ad .copy { white-space: pre-wrap; background: #fafafa; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .ad .acts { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
   a.dl { color: var(--blue); font-weight: 600; text-decoration: none; }
+  .check { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .check.look { background: var(--amber-bg); border-color: #f3e2b6; }
+  .check .head { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  .check.look .head { color: var(--amber); }
+  .scores { display: flex; flex-wrap: wrap; gap: 6px; }
+  .score { font-size: 12px; padding: 3px 9px; border-radius: 980px; background: #eef1f5; color: #3a3a3c; white-space: nowrap; }
+  .score.s1, .score.s2 { background: #fdecea; color: var(--red); }
+  .score.s3 { background: #fff1d6; color: var(--amber); }
+  .score.s4, .score.s5 { background: #e6f4ea; color: var(--green); }
+  .probs { margin: 10px 0 0; padding-left: 18px; font-size: 14px; }
+  .probs li { margin: 6px 0; }
+  .fb { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .fb .fbrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .fb .fbrow:first-child { margin-top: 0; }
+  .fb textarea { min-height: 60px; margin-top: 8px; font-size: 15px; }
+  .pick { border: 1px solid var(--line); background: #fff; border-radius: 980px; padding: 6px 16px; font: inherit; font-size: 14px;
+          font-weight: 600; cursor: pointer; color: var(--ink); }
+  .pick.on { background: var(--green); border-color: var(--green); color: #fff; }
+  .pick.on.bad { background: var(--red); border-color: var(--red); }
+  .btn.small { padding: 7px 16px; font-size: 14px; }
   .claims { background: var(--amber-bg); border: 1px solid #f3e2b6; border-radius: 12px; padding: 14px 18px; }
   .claims h3 { margin: 0 0 6px; font-size: 16px; color: var(--amber); }
   .claims ul { margin: 0; padding-left: 18px; }
@@ -225,7 +245,9 @@
     working: () => "Working.", starting: () => "Starting.", downloading: () => "Fetching your clips.",
     preparing: () => "Preparing the footage.", transcribing: () => "Listening to the footage.",
     planning: () => "Gemini is watching the footage and planning the ads.",
-    rendering: (j) => "Rendering" + (j.stage_detail ? ", " + j.stage_detail : "") + ".", uploading: () => "Saving the ads.",
+    rendering: (j) => "Rendering" + (j.stage_detail ? ", " + j.stage_detail : "") + ".",
+    checking: (j) => "Gemini is watching the finished ads to check them" + (j.stage_detail && /^ad \d+ of \d+$/.test(j.stage_detail) ? ", " + j.stage_detail : "") + ".",
+    uploading: () => "Saving the ads.",
   };
 
   function showProgress(title, text) {
@@ -284,7 +306,8 @@
         (ad.angle ? `<p class="hint">${esc(ad.angle)}</p>` : "") +
         (ad.callouts && ad.callouts.length ? `<p><strong>Callouts:</strong> ${ad.callouts.map((c) => esc(c.replace(/\n/g, " / "))).join(" · ")}</p>` : "") +
         (ad.primary_text ? `<p><strong>Primary text</strong></p><div class="copy">${esc(ad.primary_text)}</div>` : "") +
-        `<div class="acts">${ad.download_url ? `<a class="dl" href="${esc(ad.download_url)}">Download ${esc(ad.file)}</a>` : ""}</div></div></div>`);
+        `<div class="acts">${ad.download_url ? `<a class="dl" href="${esc(ad.download_url)}">Download ${esc(ad.file)}</a>` : ""}</div>` +
+        reviewHtml(ad) + feedbackHtml(j.job_id, ad) + `</div></div>`);
     }
     if (r.claims_to_review && r.claims_to_review.length) {
       h.push(`<div class="card claims"><h3>Claims to get approved before running</h3><ul>` +
@@ -296,6 +319,55 @@
     $("result").innerHTML = h.join("");
     $("result").hidden = false;
     $("another").onclick = reset;
+    $("result").querySelectorAll(".fb").forEach(wireFeedback);
+  }
+
+  // ---------------------------------------------------------------- the self-check and the feedback buttons
+  const AREA = { hook: "Hook", cuts: "Cuts", story: "Story", captions: "Captions", overlays: "Overlays", request_fit: "Fits the request", compliance: "Compliance" };
+
+  function reviewHtml(ad) {
+    const r = ad.review;
+    if (!r || !r.scores) return "";
+    const chips = Object.keys(AREA).map((a) => {
+      const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0));
+      return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`;
+    }).join("");
+    const probs = (r.problems || []).map((p) =>
+      `<li>${p.at_s != null ? `<span class="hint">${fmtTime(p.at_s)} · ${esc(AREA[p.area] || p.area)}</span> ` : `<span class="hint">${esc(AREA[p.area] || p.area)}</span> `}` +
+      `${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
+    return `<div class="check${r.look ? " look" : ""}"><div class="head">${r.look ? "Worth a look before you run it" : "Gemini's self-check"}</div>` +
+      `<div class="scores">${chips}</div>` + (r.verdict ? `<p class="hint">${esc(r.verdict)}</p>` : "") +
+      (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
+  }
+
+  function feedbackHtml(jobId, ad) {
+    if (!ad.file) return "";
+    const f = ad.feedback || {};
+    return `<div class="fb" data-job="${esc(jobId)}" data-k="${esc(ad.k)}" data-saved="${esc(f.verdict || "")}"><div class="fbrow"><span class="hint">Is this ad right?</span>` +
+      `<button class="pick${f.verdict === "good" ? " on" : ""}" data-v="good">Good</button>` +
+      `<button class="pick${f.verdict === "bad" ? " on bad" : ""}" data-v="bad">Not right</button></div>` +
+      `<textarea maxlength="1000" placeholder="What would you change? (optional, helps the next ads)">${esc(f.note || "")}</textarea>` +
+      `<div class="fbrow"><button class="btn small" disabled>Save feedback</button><span class="hint fbmsg">${f.verdict ? "Saved." : ""}</span></div></div>`;
+  }
+
+  function wireFeedback(box) {
+    const save = box.querySelector(".btn"), note = box.querySelector("textarea"), msg = box.querySelector(".fbmsg");
+    let choice = box.dataset.saved || "";
+    const dirty = () => { save.disabled = !choice; msg.textContent = ""; };
+    box.querySelectorAll(".pick").forEach((b) => b.onclick = () => {
+      choice = b.dataset.v;
+      box.querySelectorAll(".pick").forEach((x) => x.classList.toggle("on", x === b));
+      box.querySelector('[data-v="bad"]').classList.toggle("bad", choice === "bad");
+      dirty();
+    });
+    note.oninput = dirty;
+    save.onclick = async () => {
+      save.disabled = true; msg.textContent = "Saving.";
+      try {
+        await api("POST", `${BASE}/api/jobs/${box.dataset.job}/ads/${box.dataset.k}/feedback`, { verdict: choice, note: note.value });
+        msg.textContent = "Saved. The next ads will take it into account.";
+      } catch (err) { msg.textContent = err.message; save.disabled = false; }
+    };
   }
 
   function reset() {

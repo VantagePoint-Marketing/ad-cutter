@@ -288,6 +288,32 @@ def test_build_prompt_without_a_request_says_so_and_cuts_long_requests():
     assert "x" * ac.MAX_BRIEF in p and "x" * (ac.MAX_BRIEF + 1) not in p
 
 
+def test_build_prompt_quotes_the_teams_notes_and_defaults_to_none():
+    ws = words_from("hello world")
+    p = ac.build_prompt({**CFG, "ad_count": 3}, ws)
+    assert "## What the team said about earlier ads" in p and "(Nothing yet.)" in p
+    notes = '- Not right ("Lag", headline "H"): "captions too small {x}"'
+    p = ac.build_prompt({**CFG, "ad_count": 3}, ws, "req", None, notes)
+    assert notes in p and "never override the request" in p and p.index(notes) < p.index("## The footage")
+
+
+def test_write_notes_shows_the_self_check_for_each_ad(tmp_path):
+    plan = {"summary": "s", "claims_to_review": []}
+    review = {"scores": {"hook": 2, "cuts": 4, "request_fit": 3}, "verdict": "Slow start.", "look": True,
+              "problems": [{"at_s": 3.0, "area": "hook", "what": "Nothing happens.", "fix": "Cut the first 2 s."},
+                           {"at_s": None, "area": "request_fit", "what": "Too long.", "fix": "Trim."}]}
+    report = [{"k": 1, "ad": {"name": "Lag", "headline": "H", "callouts": []}, "len": 30.0, "check": "passed",
+               "file": "a.mp4", "review": review},
+              {"k": 2, "ad": {"name": "Other", "headline": "H", "callouts": []}, "len": 30.0, "check": "passed",
+               "file": "b.mp4", "review": None}]
+    ac.write_notes(tmp_path, "A.MOV", plan, [], report, 0.1, {**CFG, "plan_model": "m"}, "")
+    text = (tmp_path / "Review Notes.md").read_text(encoding="utf-8")
+    assert "**Self-check:** LOOK AT THIS: hook 2/5, cuts 4/5, request fit 3/5" in text
+    assert "  - Slow start." in text and "  - 0:03 (hook) Nothing happens. Fix: Cut the first 2 s." in text
+    assert "  - (request fit) Too long. Fix: Trim." in text and text.count("Self-check") == 1
+    assert "\n\n**Primary text:**" in text                       # the blank lines between sections survive
+
+
 def test_validate_plan_caps_the_number_of_ads_and_keeps_the_response():
     ws = words_from(" ".join(["w"] * 60))
     plan = make_plan()

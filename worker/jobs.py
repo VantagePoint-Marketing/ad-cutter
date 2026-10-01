@@ -29,8 +29,10 @@ import time
 from pathlib import Path
 
 import ad_cutter as ac
+import feedback
 import library
 import llm
+import review
 from budget import BudgetExceeded
 from pg_budget import PostgresLedger, release_stale
 from storage import Bucket
@@ -124,10 +126,12 @@ def build_result(run: dict, uploaded: dict[int, str], notes_key: str | None) -> 
                     "angle": ad.get("angle", ""), "headline": ad["headline"],
                     "callouts": [c["text"] for c in ad.get("callouts", [])], "primary_text": ad.get("primary_text", ""),
                     "seconds": round(e["len"], 1), "layout_check": (e["check"].splitlines() or ["not run"])[0],
-                    "verify": e.get("verify"), "file_key": uploaded.get(e["k"]), "error": e.get("error")})
+                    "verify": e.get("verify"), "file_key": uploaded.get(e["k"]), "error": e.get("error"),
+                    "spoken": e.get("spoken", ""), "review": e.get("review")})
     return {"summary": plan.get("summary", ""), "response_to_request": plan.get("response_to_request", ""),
             "ads": ads, "claims_to_review": plan.get("claims_to_review", []),
             "pipeline_notes": run["notes"], "notes_key": notes_key, "planning_cost": run["cost"],
+            "review_cost": run.get("review_cost", 0.0),
             "source_seconds": round(run["duration"], 1), "clips": run.get("clips", [])}
 
 
@@ -191,7 +195,8 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         run = ac.run_pipeline(cfg, srcs, work / "pipeline", work / "out", client,
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
-                              progress=lambda stage, detail="": db(set_stage, job_id, stage, detail))
+                              progress=lambda stage, detail="": db(set_stage, job_id, stage, detail),
+                              team_notes=db(feedback.team_notes))
         db(set_stage, job_id, "uploading")
         uploaded = {}
         for e in run["report"]:
@@ -308,6 +313,7 @@ def selftest() -> int:
     check("ffmpeg", lambda: shutil.which("ffmpeg"))
     check("working copy chain", prepare_chain_works)
     check("ad body chain", body_chain_renders)
+    check("self-check copy", review_copy_works)
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)
     check("render", smoke_render)
@@ -372,6 +378,23 @@ def body_chain_renders() -> str:
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return ", ".join(sizes)
+
+
+def review_copy_works() -> str:
+    """Make the small copy the self-check sends to Gemini (review.make_proxy) from a generated finished-ad-sized
+    clip. Filter and encoder negotiation differs between ffmpeg versions (5.1 in this image, 8 on the PC)."""
+    work = Path(worker_config()["work_dir"]) / "selftest-review"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    try:
+        src = work / "ad.mp4"
+        ac.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=3",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-c:v", "libx264",
+                "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", str(src)], timeout=120)
+        small = review.make_proxy(src, work / "small.mp4")
+        return f"{small.stat().st_size // 1024} KB for a 3-second ad"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def prepare_chain_works() -> str:

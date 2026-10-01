@@ -41,6 +41,7 @@ from pathlib import Path
 import numpy as np
 
 import llm
+import review
 from budget import BudgetExceeded, LocalLedger
 from llm import extract_json  # noqa: F401  (kept importable from here for existing callers and tests)
 from safe_media import UnsafeMedia, check_upload, clean_env, ffmpeg_input
@@ -286,12 +287,14 @@ def clip_lines(clips: list[dict], words: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None) -> str:
+def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None,
+                 team_notes: str = "") -> str:
     b = cfg["brand"]
     clips = clips or [{"name": "the video", "start": 0.0, "seconds": words[-1]["e"] if words else 0.0}]
     brief = brief.strip()[:MAX_BRIEF]
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
         brief=brief or "(No request was given. Use your judgement and the defaults.)",
+        team_notes=team_notes.strip() or "(Nothing yet.)",
         clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
         clips=clip_lines(clips, words), ad_count=cfg["ad_count"], max_ad_count=cfg.get("ad_count_max", 6),
         brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
@@ -709,10 +712,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, client: llm.OpenRouter, *,
                  replan: bool = False, only: list[int] | None = None, render_it: bool = True, brief: str = "",
-                 names: list[str] | None = None, progress=lambda stage, detail="": None) -> dict:
+                 names: list[str] | None = None, progress=lambda stage, detail="": None,
+                 team_notes: str = "") -> dict:
     """Raw clip(s) + the person's request -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command
-    line and the cloud worker. `progress(stage, detail)` is called as work moves along. Returns plan, report,
-    notes and planning cost."""
+    line and the cloud worker. `progress(stage, detail)` is called as work moves along. `team_notes` is the
+    feedback block from feedback.team_notes. After rendering, Gemini scores each finished ad (review.py; off with
+    `review_enabled: false` in the config). Returns plan, report, notes, planning cost and self-check cost."""
     progress("preparing", "checking and converting the footage")
     media = prepare(srcs, work, float(cfg.get("max_source_seconds", 600)), names)
     label = media["clips"][0]["name"] + (f" + {len(media['clips']) - 1} more" if len(media["clips"]) > 1 else "")
@@ -729,7 +734,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     else:
         progress("planning", "Gemini is watching the footage")
         log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
-        prompt = build_prompt(cfg, words, brief, media["clips"])
+        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes)
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
@@ -754,9 +759,19 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
             entry["error"] = f"{type(err).__name__}: {err}"[:500]
         report.append(entry)
 
+    review_cost = 0.0
+    if render_it and cfg.get("review_enabled", True) and any(e.get("file") for e in report):
+        progress("checking", "Gemini is watching the finished ads")
+        reviews, review_notes, review_cost = review.review_ads(
+            cfg, client, brief=brief, work=work, progress=progress,
+            entries=[{**e, "video": work / f"ad{e['k']}" / "render.mp4"} for e in report if e.get("file")])
+        for e in report:
+            e["review"] = reviews.get(e["k"])
+        notes += review_notes
+
     write_notes(out_dir, label, plan, notes, report, cost, cfg, brief)
     return {"plan": plan, "report": report, "notes": notes, "cost": cost, "duration": media["duration"],
-            "clips": media["clips"]}
+            "clips": media["clips"], "review_cost": review_cost}
 
 
 def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> list[tuple[float, float, str]]:
@@ -806,6 +821,7 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
     log.info("rendering ad %s (a few minutes)", k)
     render(cfg, project, rendered)
     entry["verify"] = verify(cfg, rendered, caps, body_len, work)
+    entry["spoken"] = " ".join(w["w"] for w in caps)[:1500]
     dest = unique_file(out_dir / f"Ad - {safe_name(ad['name'])} ({dt.date.today():%Y-%m-%d}).mp4")
     shutil.copyfile(rendered, dest)
     entry["file"] = dest.name
@@ -836,6 +852,15 @@ def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report:
                   f"{v['size']}, audio {'yes' if v['audio'] else 'MISSING'}",
                   f"  - starts: heard \"{v['heard_start']}\" / captions \"{v['caption_start']}\"",
                   f"  - ends: heard \"{v['heard_end']}\" / captions \"{v['caption_end']}\""]
+        r = e.get("review")
+        if r:
+            L.append(f"- **Self-check:** {'LOOK AT THIS: ' if r.get('look') else ''}"
+                     + ", ".join(f"{a.replace('_', ' ')} {n}/5" for a, n in r["scores"].items()))
+            if r.get("verdict"):
+                L.append(f"  - {r['verdict']}")
+            for p in r["problems"]:
+                when = f"{fmt_time(p['at_s'])} " if p["at_s"] is not None else ""
+                L.append(f"  - {when}({p['area'].replace('_', ' ')}) {p['what']} Fix: {p['fix']}")
         L += ["", "**Primary text:**", "", *[f"> {x}" for x in str(ad.get("primary_text", "")).splitlines()], ""]
     claims = plan.get("claims_to_review") or []
     if claims:

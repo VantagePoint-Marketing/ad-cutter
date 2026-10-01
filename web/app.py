@@ -27,7 +27,9 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from typing import Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Path as UrlPath
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -44,6 +46,8 @@ LINK_SECONDS = 3600                      # how long signed preview/download link
 UPLOAD_LINK_SECONDS = 6 * 3600           # upload links last longer: several big clips on a home connection
 DAILY_JOBS = 30                          # jobs the page accepts per rolling day (worker time is not capped elsewhere)
 RECENT = 30
+MAX_NOTE = 1000                          # characters of a feedback note (migration 004 enforces the same)
+FEEDBACK_PER_JOB = 60                    # clicks one job accepts: the page's buttons can be changed, not spammed
 LIBRARY_REMOVED = "removed from the foundation list"     # worker/library.py REMOVED
 STATE = {"uploads": "not set up"}
 JOB_COLUMNS = ("id::text as job_id, status, stage, stage_detail, error, created_at, started_at, finished_at, "
@@ -217,6 +221,33 @@ def recent_jobs(token: str = Depends(link)) -> dict:
     return {"jobs": [{**r, "created_at": iso(r["created_at"]), "finished_at": iso(r["finished_at"])} for r in found]}
 
 
+class Feedback(BaseModel):
+    verdict: Literal["good", "bad"]
+    note: str = ""
+
+
+@app.post("/{token}/api/jobs/{job_id}/ads/{k}/feedback")
+def save_feedback(job_id: uuid.UUID, body: Feedback, k: int = UrlPath(ge=1, le=20),
+                  token: str = Depends(link)) -> dict:
+    """"Good" or "Not right" (and an optional note) for one finished ad. The newest click for an ad wins; the worker
+    shows the latest few to Gemini as examples when it plans the next ads."""
+    jid = str(job_id)
+    note = re.sub(r"\s+", " ", body.note).strip()
+    if len(note) > MAX_NOTE:
+        raise HTTPException(400, f"Keep the note under {MAX_NOTE:,} characters.")
+    with connect() as conn:
+        found = rows(conn, "select status, result from jobs where id = %s and created_by = 'web'", (jid,))
+        ads = ((found[0]["result"] or {}).get("ads") or []) if found else []
+        if not found or found[0]["status"] != "ready" or not any(a.get("k") == k and a.get("file_key") for a in ads):
+            raise HTTPException(404, "No such ad.")
+        if int(conn.execute("select count(*) from ad_feedback where job_id = %s", (jid,)).fetchone()[0] or 0) \
+                >= FEEDBACK_PER_JOB:
+            raise HTTPException(429, "That is plenty of feedback for one job.")
+        conn.execute("insert into ad_feedback (job_id, ad_k, verdict, note) values (%s, %s, %s, %s)",
+                     (jid, k, body.verdict, note))
+    return {"k": k, "verdict": body.verdict, "note": note}
+
+
 @app.get("/{token}/api/library")
 def library(lessons: bool = False, token: str = Depends(link)) -> dict:
     """What the agent has studied: one entry per video, with its kept lessons when `lessons` is true."""
@@ -271,10 +302,27 @@ def job_view(job_id: str) -> dict:
         if row["status"] == "queued":
             ahead = conn.execute("select count(*) from jobs where status in ('queued', 'working') and created_at < "
                                  "(select created_at from jobs where id = %s)", (job_id,)).fetchone()[0]
-    return present(row, int(ahead or 0))
+        said = {}
+        if row["status"] in ("ready", "failed"):
+            import psycopg
+            try:      # the newest click for each ad; a deploy that beats migration 004 just shows no buttons state
+                said = {r["ad_k"]: {"verdict": r["verdict"], "note": r["note"]} for r in rows(
+                    conn, "select distinct on (ad_k) ad_k, verdict, note from ad_feedback where job_id = %s "
+                          "order by ad_k, created_at desc, id desc", (job_id,))}
+            except psycopg.errors.UndefinedTable:
+                said = {}
+    return present(row, int(ahead or 0), said)
 
 
-def present(row: dict, ahead: int = 0) -> dict:
+def public_review(review) -> dict | None:
+    """A self-check scorecard as the page needs it (the worker validated it; this only drops anything unexpected)."""
+    if not isinstance(review, dict) or not isinstance(review.get("scores"), dict):
+        return None
+    return {"scores": review["scores"], "problems": review.get("problems") or [], "verdict": review.get("verdict", ""),
+            "look": bool(review.get("look"))}
+
+
+def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:
     """What the page shows: the job's state in plain fields, and when it is done, the ads with signed links."""
     opts = row.get("options") or {}
     out = {"job_id": row["job_id"], "status": row["status"], "stage": row.get("stage"),
@@ -295,6 +343,7 @@ def present(row: dict, ahead: int = 0) -> dict:
                         "callouts": ad.get("callouts", []), "primary_text": ad.get("primary_text"),
                         "seconds": ad.get("seconds"), "layout_check": ad.get("layout_check"),
                         "speech_match": (ad.get("verify") or {}).get("match"), "error": ad.get("error"), "file": name,
+                        "review": public_review(ad.get("review")), "feedback": (feedback or {}).get(ad.get("k")),
                         "preview_url": b.get_url(key, name, expires=LINK_SECONDS) if key else None,
                         "download_url": b.get_url(key, name, attachment=True, expires=LINK_SECONDS) if key else None})
         notes_key = res.get("notes_key")

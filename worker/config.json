@@ -24,6 +24,9 @@
   "cta_seconds": 3,
   "render_quality": "delivery",
 
+  "review_enabled": true,
+  "review_job_cap_usd": 0.30,
+
   "library": {
     "watch_models": ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"],
     "window_seconds": 600,
