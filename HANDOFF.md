@@ -18,11 +18,14 @@ YouTube watching on Google's free tier (Flash, public videos only; Robert: "stri
 youtube videos via API not rendering my edits"); his own footage stays on OpenRouter zero-retention; billing is
 off on the Gemini key's Google project.
 
-**Step A is built** (see "The reference library" below): tests pass, every SQL statement checked on staging
-Postgres in a rolled-back transaction, code review in progress or done (see `git log`). **Waiting on Robert:** paste
-`GEMINI_API_KEY` and `YOUTUBE_API_KEY` into Railway → staging → worker → Variables (same values as the Windows user
-variables of the same names on his PC; the auto-mode rule blocks Claude from writing secrets). The worker then
-studies the 17 videos while idle (about 4.5 hours of video; 27 parts of up to 10 minutes; a day at most). Watch it:
+**Step A is built, reviewed (two blockers and a stalling breaker found, fixed, re-approved) and deployed to staging
+as `c1a6f5c`** (migration 003 applied; `LIBRARY_ENABLED=1` on the worker; the page's Library section shows "Nothing
+studied yet"; tests: worker 185 passed + 5 skipped, web 15 passed). Verified live on 2026-10-01: the worker has
+`LIBRARY_ENABLED=1` but **`GEMINI_API_KEY` and `YOUTUBE_API_KEY` are not set on it yet**, so the library is idle.
+**Waiting on Robert:** paste them into Railway → App · Video Agent → staging → worker → Variables (same values as
+the Windows user variables of the same names on his PC; Claude cannot write secrets, the auto-mode rule blocks it).
+The worker then studies the 17 videos while idle (about 4.5 hours of video, about 27 parts of up to 10 minutes, a day
+at most, $0). Check it after he says it is done (first `jobs.py --selftest` shows the `library` line):
 
 ```bash
 KEY="$HOME/.railway/ssh/railway_video_agent"
@@ -30,7 +33,14 @@ npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl
 npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py lessons QR8LxximqWI'
 ```
 
-Then show Robert the first notes (the page's Library section, "Show the lessons") and start step B.
+If videos end up `failed`, fix the cause and run `python tools/jobctl.py library-retry failed`. Then show Robert the
+first notes (the page's Library section, "Show the lessons") and start step B (Good / Not right buttons on each ad,
+`ad_feedback` table, and the post-render Gemini self-check with one bounded re-plan; the architect's full design is
+in the Desktop plan file). Ask Robert for the top three things he would change in the ads he has seen.
+
+Keys on this PC (Windows user env vars, never in files): `GEMINI_API_KEY` (free tier), `YOUTUBE_API_KEY`,
+`OPENROUTER_VIDEO_AGENT_KEY`, `OPENROUTER_VIDEO_AGENT_LIBRARY_KEY`. Scratch scripts used for live checks are in the
+session scratchpad, not the repo.
 
 ## Where we left off (W1, earlier on 2026-10-01)
 
