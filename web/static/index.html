@@ -297,6 +297,10 @@
       <div class="recent-h"><h2>Recent videos</h2><span class="hint">Everyone on the team</span></div>
       <ul class="jobs" id="recent"></ul>
     </div>
+    <div class="card empty" id="emptyCard" hidden><h2>Turn one video into ready-to-post ads</h2><p class="hint">You talk to the camera. The AI picks the best moments, adds captions, a headline and the end screen, and hands you finished ads.</p>
+      <div class="steps3"><div><span class="num">1</span><h3 style="margin-top:8px">Upload a video</h3><p class="hint">Any vertical phone video of you talking to the camera.</p></div>
+      <div><span class="num">2</span><h3 style="margin-top:8px">Say what you want</h3><p class="hint">A sentence or two, like you'd brief an editor.</p></div>
+      <div><span class="num">3</span><h3 style="margin-top:8px">Download your ads</h3><p class="hint">Captions, headline and end card are already on.</p></div></div></div>
   </section>
 
   <!-- ======================================================= Make ads -->
@@ -360,7 +364,7 @@
           </div>
           <div class="confirm" id="wConfirm" hidden>
             <strong>Stop making these ads?</strong>
-            <p class="hint" style="margin:4px 0 10px">The progress so far will be lost. A step that is already running finishes first, which can take a minute or two.</p>
+            <p class="hint" style="margin:4px 0 10px">The progress so far will be lost. Anything already running finishes first (usually a few minutes). AI cost already used is not refunded.</p>
             <div class="row"><button class="btn ghost sm" id="wKeep">Keep going</button><button class="btn sm" id="wStop">Stop</button></div>
           </div>
         </div>
@@ -512,7 +516,10 @@
   const running = () => !!watching && (!job || !["ready", "failed", "cancelled"].includes(job.status));      // uploading or being made
   document.querySelectorAll(".tab").forEach((b) => b.onclick = () => goTab(b.dataset.tab));      // switching tabs never resets what you were doing
   document.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => { if (!running()) newBatch(false); goTab(b.dataset.go); });
-  function goTab(t) { if (t !== "make" && UUID.test(location.hash.slice(1))) history.replaceState(null, "", location.pathname + "#" + t); else if (t === "overview" || t === "settings") history.replaceState(null, "", location.pathname + "#" + t); show(t); }
+  function goTab(t) {
+    if (t !== "make" || !UUID.test(location.hash.slice(1))) history.replaceState(null, "", location.pathname + "#" + t);
+    show(t);
+  }
 
   // ------------------------------------------------------------------ overview
   const when = (iso) => {
@@ -522,7 +529,9 @@
   };
   let overviewData = null;
 
-  async function loadOverview() {
+  let ovLoading = null;
+  function loadOverview() { if (!ovLoading) ovLoading = doLoadOverview().finally(() => { ovLoading = null; }); return ovLoading; }
+  async function doLoadOverview() {
     renderGreeting();
     try { overviewData = await api("GET", `${BASE}/api/overview`); applyDefaults(); } catch (e) { overviewData = overviewData || { stats: null, spend: null }; }
     const s = overviewData.stats;
@@ -549,15 +558,8 @@
     let data;
     try { data = await api("GET", `${BASE}/api/jobs`); } catch (e) { return; }
     const list = data.jobs;
-    if (!list.length) {
-      $("recent").innerHTML = "";
-      $("recentCard").innerHTML = `<div class="empty"><h2>Turn one video into ready-to-post ads</h2><p class="hint">You talk to the camera. The AI picks the best moments, adds captions, a headline and the end screen, and hands you finished ads.</p>` +
-        `<div class="steps3"><div><span class="num">1</span><h3 style="margin-top:8px">Upload a video</h3><p class="hint">Any vertical phone video of you talking to the camera.</p></div>` +
-        `<div><span class="num">2</span><h3 style="margin-top:8px">Say what you want</h3><p class="hint">A sentence or two, like you'd brief an editor.</p></div>` +
-        `<div><span class="num">3</span><h3 style="margin-top:8px">Download your ads</h3><p class="hint">Captions, headline and end card are already on.</p></div></div></div>`;
-      return;
-    }
-    if (!$("recent")) return;
+    $("emptyCard").hidden = list.length > 0; $("recentCard").hidden = !list.length;
+    if (!list.length) return;
     $("recent").innerHTML = list.map((j) =>
       `<li class="job"><div class="thumb"></div><div style="min-width:0"><div class="nm">${esc(j.label)}</div><div class="mt">${j.by ? esc(j.by) + " · " : ""}${esc(when(j.created_at))}${j.brief ? " · " + esc(j.brief) : ""}</div></div>` +
       `<div class="st">${badgeFor(j)}</div><div class="cost">${j.cost_usd ? "$" + j.cost_usd.toFixed(2) : ""}</div>` +
@@ -611,7 +613,7 @@
   }
   function addFiles(list) {
     for (const f of list) {
-      if (files.length >= MAX_CLIPS) { $("fileErr").textContent = `Up to ${MAX_CLIPS} clips per batch.`; break; }
+      if (files.length >= MAX_CLIPS) { limitHit = true; break; }
       if (files.some((x) => x.file.name === f.name && x.file.size === f.size)) continue;
       const entry = { file: f, seconds: null, vertical: true };
       files.push(entry);
@@ -627,7 +629,7 @@
   input.addEventListener("change", () => { addFiles(input.files); input.value = ""; });
   $("addMoreBtn").onclick = () => input.click();
 
-  let clipUrl = null;
+  let clipUrl = null, clipFor = null, limitHit = false;
   function updateForm() {
     drop.hidden = files.length > 0; $("clips").hidden = !files.length; $("addMore").hidden = !files.length;
     $("clips").innerHTML = files.map((x, i) => `<li><span class="nm">${esc(x.file.name)}</span><span class="mt">${x.seconds != null ? fmtTime(x.seconds) + " · " : ""}${fmtSize(x.file.size)}</span><button data-i="${i}">Remove</button></li>`).join("");
@@ -635,18 +637,20 @@
     const total = files.reduce((a, x) => a + (x.seconds || 0), 0);
     const notVertical = files.filter((x) => !x.vertical), tooBig = files.find((x) => x.file.size > MAX_BYTES);
     let err = "";
+    if (files.length < MAX_CLIPS) limitHit = false;
     if (tooBig) err = `${tooBig.file.name} is over 4 GB.`;
     else if (total > MAX_MINUTES * 60) err = `That is ${fmtTime(total)} of footage; the limit is ${MAX_MINUTES} minutes per batch.`;
+    if (!err && limitHit) err = `Up to ${MAX_CLIPS} clips per batch.`;
     $("fileErr").textContent = err;
     $("checks").innerHTML = files.length ? (notVertical.length ? `<span class="chk warn"><span class="tick">!</span>${notVertical.length === 1 ? "One clip is" : "Some clips are"} not vertical (the sides will be cropped)</span>` : `<span class="chk"><span class="tick">${icon("check")}</span>Vertical video</span>`) +
       (total ? `<span class="chk${total > MAX_MINUTES * 60 ? " warn" : ""}"><span class="tick">${total > MAX_MINUTES * 60 ? "!" : icon("check")}</span>${fmtTime(total)} of footage</span>` : "") : "";
     const lo = Math.round((6 + 3.5 * ads) * .75), hi = Math.round((6 + 3.5 * ads) * 1.25);
-    $("sum").textContent = `${ads} ad${ads > 1 ? "s" : ""}, about ${secs} seconds each. Usually ${lo} to ${hi} minutes.`;
+    $("sum").textContent = `${ads} ad${ads > 1 ? "s" : ""}, about ${secs} seconds each. Usually ${lo} to ${hi} minutes once it starts.`;
     $("go").disabled = !files.length || !!err;
     // the preview shows the person's own first clip until the ads exist
     if (!watching) {
-      if (files.length && !clipUrl) { clipUrl = URL.createObjectURL(files[0].file); showVideo(clipUrl, "Your video, before the AI"); }
-      if (!files.length) { if (clipUrl) URL.revokeObjectURL(clipUrl); clipUrl = null; showEmpty("Your ad will appear here", "Add a video to see it."); }
+      if (files.length && files[0] !== clipFor) { if (clipUrl) URL.revokeObjectURL(clipUrl); clipUrl = URL.createObjectURL(files[0].file); clipFor = files[0]; showVideo(clipUrl, "Your video, before the AI"); }
+      if (!files.length) { if (clipUrl) URL.revokeObjectURL(clipUrl); clipUrl = null; clipFor = null; showEmpty("Your ad will appear here", "Add a video to see it."); }
     }
   }
   $("brief").addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("go").disabled) $("go").click(); });
@@ -656,7 +660,8 @@
   function showEmpty(t, s) { vid.hidden = true; vid.removeAttribute("src"); vid.load(); $("tNow").textContent = "0:00"; $("tAll").textContent = "0:00"; $("seek").value = "0"; $("ph").hidden = false; $("phT").textContent = t; $("phS").textContent = s; $("ctl").dataset.off = "1"; $("pvMeta").textContent = ""; setPP(false); }
   function showVideo(src, meta, keepAt) {
     vid.hidden = false; $("ph").hidden = true; $("ctl").dataset.off = "0"; $("pvMeta").textContent = meta || "";
-    vid.src = src; if (keepAt) vid.addEventListener("loadedmetadata", () => { vid.currentTime = keepAt; }, { once: true });
+    vid.onloadedmetadata = keepAt ? () => { vid.currentTime = keepAt; vid.onloadedmetadata = null; } : null;
+    vid.src = src;
     vid.load();
   }
   function pauseVideo() { try { vid.pause(); } catch (e) { /* nothing playing */ } }
@@ -678,11 +683,11 @@
   vid.addEventListener("error", async () => {      // signed links last an hour: fetch fresh ones once in a while
     if (!job || Date.now() - refreshedAt < 30000 || !vid.getAttribute("src") || vid.getAttribute("src").startsWith("blob:")) return;
     refreshedAt = Date.now();
-    try { const j = await api("GET", `${BASE}/api/jobs/${job.job_id}`); const at = vid.currentTime; job = j; const ad = (j.result.ads || [])[sel]; if (ad && ad.preview_url) showVideo(ad.preview_url, `Ad ${sel + 1} of ${j.result.ads.length}`, at); } catch (e) { /* leave it */ }
+    try { const j = await api("GET", `${BASE}/api/jobs/${job.job_id}`); const at = vid.currentTime; job = j; if (j.status === "ready") renderDone(j, at); } catch (e) { /* leave it */ }
   });
 
   // ------------------------------------------------------------------ making a batch
-  let job = null, watching = null, gen = 0, pollTimer = null, sel = 0, xhrs = [], cancelled = false, startedAt = 0, last = null;
+  let job = null, watching = null, gen = 0, pollTimer = null, sel = 0, xhrs = [], cancelled = false, last = null, uploadingId = null;
   const STEPS = [["Upload your video", ["uploading"]], ["Listen to what you said", ["queued", "starting", "downloading", "preparing", "transcribing"]], ["Pick the best moments", ["planning"]],
                  ["Cut, caption and add the end screen", ["rendering"]], ["Check every ad", ["checking"]], ["Save your ads", ["uploading-results"]]];
   function stepIndex(j) {
@@ -699,7 +704,7 @@
   function renderWork(j, uploadPct) {
     setLeft("mkWork");
     const count = ads, phase = j ? j.status : "uploading";
-    const label = files.length ? files.map((x) => x.file.name).join(", ") : (j ? j.label : "");
+    const label = j ? j.label : files.map((x) => x.file.name).join(", ");
     $("wLabel").textContent = label;
     const n = j && j.asked && j.asked.ads ? j.asked.ads : count;
     $("wTitle").textContent = `Making your ${words(n)} ad${n > 1 ? "s" : ""}…`;
@@ -720,7 +725,7 @@
                    clips: files.map((x) => ({ name: x.file.name, bytes: x.file.size })) };
     let created;
     try { created = await api("POST", `${BASE}/api/jobs`, body); } catch (err) { $("formErr").textContent = err.message; $("go").disabled = false; return; }
-    watching = created.job_id; job = null; startedAt = Date.now(); last = { jobId: created.job_id, files: files.slice(), brief: $("brief").value };
+    watching = created.job_id; job = null; uploadingId = created.job_id; last = { jobId: created.job_id, files: files.slice(), brief: $("brief").value };
     renderWork(null, 0); $("wErr").textContent = ""; $("wFiles").innerHTML = created.clips.map((c) => `<li class="row" style="margin:6px 0"><span class="nm" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span><span class="bar2" style="width:110px"><i id="up${c.n}"></i></span><span class="hint" id="upp${c.n}" style="width:42px">0%</span></li>`).join("");
     location.hash = created.job_id;
     try {
@@ -732,10 +737,13 @@
       if (cancelled) return;
       $("wFiles").innerHTML = "";
       const started = await api("POST", `${BASE}/api/jobs/${created.job_id}/start`);
+      uploadingId = null;
+      if (cancelled) return;
       files = []; usedIdeas = new Set(); $("brief").value = ""; renderIdeas();      // the next batch starts clean
       if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
       watch(created.job_id, started);
     } catch (err) {
+      uploadingId = null;
       if (cancelled) return;
       $("wErr").textContent = err.message; $("wActs").hidden = true;
       $("wSteps").innerHTML = ""; $("wText").textContent = "";
@@ -763,28 +771,39 @@
   $("wStop").onclick = async () => {
     cancelled = true; xhrs.forEach((x) => { try { x.abort(); } catch (e) { /* done already */ } });
     $("wConfirm").hidden = true; clearTimeout(pollTimer); gen++;
-    const id = watching; watching = null;
-    try { if (id) await api("POST", `${BASE}/api/jobs/${id}/cancel`); } catch (e) { /* it may already be over */ }
+    const id = watching; uploadingId = null;
+    let res = null;
+    try { if (id) res = await api("POST", `${BASE}/api/jobs/${id}/cancel`); }
+    catch (e) { cancelled = false; watch(id); $("wErr").textContent = "We could not stop this batch (" + e.message + "). It is still running; try Stop again in a moment."; return; }
+    if (res && res.status !== "cancelled") { watch(id, res); return; }      // it finished, failed or is saving before the stop arrived: show what is true
+    watching = null;
     endCard("Stopped", "", "Nothing was posted. Your clips and request are still here if you want to start again.", { jobId: id });
   };
 
   function watch(jobId, first) {
     const my = ++gen; watching = jobId; clearTimeout(pollTimer); cancelled = false;
+    const abandoned = (j) => j.status === "uploading" && uploadingId !== j.job_id;      // an upload this tab is not doing
     const apply = (j) => {
       job = j;
+      if (abandoned(j)) return endCard("This upload did not finish", "", "The clips never arrived, so nothing was made. Start again with your clips.", { jobId: j.job_id, brief: j.brief });
       if (j.status === "ready") return renderDone(j);
       if (j.status === "failed") return endCard("Something went wrong", j.error || "The editor could not finish this batch.", "Your request is still here, so you can try again.", { jobId: j.job_id, brief: j.brief });
       if (j.status === "cancelled") return endCard("Stopped", "", "Nothing was posted.", { jobId: j.job_id, brief: j.brief });
       renderWork(j);
     };
+    let misses = 0;
     const tick = async () => {
       if (my !== gen) return;
       try {
         const j = await api("GET", `${BASE}/api/jobs/${jobId}`);
         if (my !== gen) return;
-        apply(j);
-        if (!["ready", "failed", "cancelled"].includes(j.status)) pollTimer = setTimeout(tick, 4000);
-      } catch (err) { if (my !== gen) return; endCard("We could not load this batch", err.message, "", {}); }
+        misses = 0; apply(j);
+        if (!["ready", "failed", "cancelled"].includes(j.status) && !abandoned(j)) pollTimer = setTimeout(tick, 4000);
+      } catch (err) {
+        if (my !== gen) return;
+        if (++misses < 5) { pollTimer = setTimeout(tick, 5000); return; }      // a network blip is not the end of a 10-minute job
+        endCard("We could not load this batch", err.message, "The batch may still be running: it is listed under Recent.", {});
+      }
     };
     if (first) { apply(first); pollTimer = setTimeout(tick, 4000); } else tick();
   }
@@ -813,6 +832,7 @@
   $("dMore").onclick = () => newBatch(true);
 
   function openJob(id, tryAgain) {
+    if (running() && id !== watching) { goTab("make"); return; }      // finish or stop the batch in progress first
     goTab("make"); history.replaceState(null, "", location.pathname + "#" + id);
     if (tryAgain) {
       api("GET", `${BASE}/api/jobs/${id}`).then((j) => { newBatch(true, j.brief || ""); }).catch(() => newBatch(true));
@@ -823,7 +843,7 @@
 
   // ------------------------------------------------------------------ the finished ads
   const claimKey = (id) => "va.claims." + id;
-  function renderDone(j) {
+  function renderDone(j, keepAt) {
     const r = j.result || {}, list = (r.ads || []).filter((a) => a.preview_url);
     setLeft("mkDone");
     const n = list.length;
@@ -840,7 +860,7 @@
     $("adTabs").innerHTML = list.map((a, i) => `<button class="pill" role="tab" data-i="${i}" aria-selected="${i === sel}">Ad ${i + 1} · ${esc(a.name)}</button>`).join("");
     $("adTabs").querySelectorAll(".pill").forEach((b) => b.onclick = () => select(list, j, +b.dataset.i, true));
     $("dAll").onclick = () => list.forEach((a, i) => setTimeout(() => { const l = document.createElement("a"); l.href = a.download_url; l.download = a.file || ""; document.body.appendChild(l); l.click(); l.remove(); }, i * 700));
-    if (n) select(list, j, sel, false); else { showEmpty("No ads to show", "Try again with a different request."); $("dSel").innerHTML = ""; }
+    if (n) select(list, j, sel, false, keepAt); else { showEmpty("No ads to show", "Try again with a different request."); $("dSel").innerHTML = ""; }
   }
 
   function drawList(list, j) {
@@ -863,11 +883,11 @@
     $("claims").querySelectorAll("input").forEach((b) => b.onchange = () => { saved[+b.dataset.i] = b.checked; store.set(claimKey(j.job_id), JSON.stringify(saved)); });
   }
 
-  function select(list, j, i, play) {
+  function select(list, j, i, play, keepAt) {
     sel = i; const a = list[i];
     drawList(list, j);
     $("adTabs").querySelectorAll(".pill").forEach((b, k) => b.setAttribute("aria-selected", String(k === i)));
-    showVideo(a.preview_url, `Ad ${i + 1} of ${list.length}`);
+    showVideo(a.preview_url, `Ad ${i + 1} of ${list.length}`, keepAt);
     if (play) vid.play().catch(() => {});
     $("dSel").innerHTML = reviewHtml(a) + feedbackHtml(j.job_id, a);
     const box = $("dSel").querySelector(".fb"); if (box) wireFeedback(box);

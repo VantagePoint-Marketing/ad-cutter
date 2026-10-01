@@ -166,6 +166,38 @@ def test_a_cancelled_job_stops_at_its_next_step_without_finishing_or_retrying(mo
     assert not bucket.uploads and not (Path(cfg["work_dir"]) / JOB).exists()
 
 
+class LostJobConn(FakeConn):
+    """A connection where every update of the job's status touches no row (cancelled, or taken over by another worker)."""
+
+    def execute(self, sql, params=None):
+        res = super().execute(sql, params)
+        return FakeResult([], rowcount=0) if sql.strip().startswith("update jobs set status") else res
+
+
+def events(log):
+    return [p[1] for s, p in log if s.startswith("insert into job_events")]
+
+
+def test_finishing_a_job_that_is_no_longer_ours_changes_nothing_and_logs_nothing():
+    log = []
+    jobs.finish(LostJobConn(log), JOB, "ready", result={"ads": []})
+    assert statuses(log) == ["ready"] and events(log) == []              # the update ran, found no row, and nothing was logged
+    log = []
+    jobs.finish(FakeConn(log), JOB, "ready", result={"ads": []})
+    assert events(log) == ["ready"]                                       # a normal finish is still logged
+
+
+def test_a_shutdown_hand_back_for_a_job_that_is_no_longer_ours_logs_nothing(monkeypatch, env, cancellable):
+    log, cfg, bucket, _ = env
+
+    def stop(*a, **kw):
+        raise jobs.Stop()
+    monkeypatch.setattr(ac, "run_pipeline", stop)
+    with pytest.raises(jobs.Stop):
+        jobs.run_job(lambda: LostJobConn(log), bucket, job(), cfg)
+    assert "worker restarting; job put back in the queue" not in events(log)
+
+
 def test_cancel_cannot_be_swallowed_by_a_per_ad_or_check_handler():
     assert not issubclass(jobs.Cancelled, Exception)
 

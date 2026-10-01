@@ -35,6 +35,7 @@ class FakeDB:
         self.library_sources, self.library_notes, self.library_missing = [], [], False
         self.feedback, self.feedback_missing = [], False        # rows of (job_id, ad_k, verdict, note), oldest first
         self.stats_row, self.stats_missing = (14, 1.384, 540.0, 41), False   # videos, cost, wait seconds, ads
+        self.recent_counts_fail = False                                       # the jsonb-path part of the Recent query
         self.spend_row = (1.38, 0.2, 90.0)                                    # spent, reserved, cap
 
     def connect(self):
@@ -71,7 +72,8 @@ class FakeDB:
             return Cursor([], [])
         if sql.startswith("update jobs set status = 'cancelled'"):
             job = self.jobs.get(params[0])
-            if job and job["status"] in ("uploading", "queued", "working"):
+            saving = job and job["status"] == "working" and job["stage"] == "uploading"      # the ads are being saved
+            if job and job["status"] in ("uploading", "queued", "working") and not saving:
                 job["status"] = "cancelled"
                 return Cursor(["id"], [(job["id"],)])
             return Cursor(["id"], [])
@@ -83,9 +85,13 @@ class FakeDB:
             if self.spend_row is None:
                 return Cursor(["spent", "reserved", "cap_usd"], [])
             return Cursor(["spent", "reserved", "cap_usd"], [self.spend_row])
-        if "jsonb_path_query_array" in sql and "order by created_at desc" in sql:            # Recent, with ad counts
+        if ("jsonb_path_query_array" in sql or "0 as ads_planned" in sql) and "order by created_at desc" in sql:   # Recent
+            if self.recent_counts_fail and "jsonb_path_query_array" in sql:
+                raise RuntimeError("jsonb path query failed")
+            no_counts = "0 as ads_planned" in sql
+
             def planned(j):
-                return (j["result"] or {}).get("ads", [])
+                return [] if no_counts else (j["result"] or {}).get("ads", [])
             listed = [j for j in self.jobs.values() if j["status"] != "uploading"]
             cols = ["job_id", "status", "stage", "stage_detail", "error", "created_at", "finished_at", "label", "brief",
                     "by", "asked_ads", "cost_usd", "clips", "ads_planned", "ads_ready"]
@@ -483,6 +489,38 @@ def test_cancel_stops_a_job_that_has_not_finished_and_leaves_a_finished_one_alon
     assert client.post(f"/{TOKEN}/api/jobs/{done}/cancel").json()["status"] == "ready"
     assert client.post(f"/{TOKEN}/api/jobs/00000000-0000-0000-0000-000000000000/cancel").status_code == 404
     assert client.post(f"/wrong-token-1234567/api/jobs/{jid}/cancel").status_code == 404
+
+
+def test_cancel_is_refused_once_the_finished_ads_are_being_saved(client):
+    jid = new_job(client)["job_id"]
+    client.db.jobs[jid].update(status="working", stage="uploading")
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/cancel").json()["status"] == "working"      # too late: the ads are paid for
+    assert client.db.events[-1][1] != "cancelled from the web page"
+    client.db.jobs[jid].update(stage="rendering")
+    assert client.post(f"/{TOKEN}/api/jobs/{jid}/cancel").json()["status"] == "cancelled"
+
+
+def test_the_recent_list_still_loads_when_the_ad_counts_cannot_be_read(client):
+    a = make(client).json()["job_id"]
+    client.db.jobs[a].update(status="ready", result={"ads": [{"k": 1, "file_key": "r/1"}]})
+    client.db.recent_counts_fail = True
+    res = client.get(f"/{TOKEN}/api/jobs")
+    assert res.status_code == 200
+    row = res.json()["jobs"][0]
+    assert row["status"] == "ready" and (row["ads_planned"], row["ads_ready"]) == (0, 0) and row["by"] is None
+
+
+def test_the_daily_limit_does_not_count_jobs_that_never_reached_the_worker(client):
+    sql = []
+    original = client.db.execute
+
+    def spy(statement, params=()):
+        sql.append(" ".join(statement.split()))
+        return original(statement, params)
+    client.db.execute = spy
+    make(client)
+    count = next(s for s in sql if s.startswith("select count(*) from jobs where created_by = 'web'"))
+    assert "not (status in ('uploading', 'cancelled') and started_at is null)" in count
 
 
 def test_overview_has_this_months_numbers_the_spend_and_the_end_screen_defaults(client):

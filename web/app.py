@@ -213,8 +213,10 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
         if text and text != team_defaults()[key]:
             options[key] = text
     with connect() as conn:
+        # jobs that never reached the worker (an upload that failed or was stopped) spent nothing: they do not count
         today = conn.execute("select count(*) from jobs where created_by = 'web' and created_at > now() - "
-                             "interval '1 day'").fetchone()[0]
+                             "interval '1 day' and not (status in ('uploading', 'cancelled') and started_at is null)"
+                             ).fetchone()[0]
         if int(today or 0) >= DAILY_JOBS:
             raise HTTPException(429, f"The editor has taken {DAILY_JOBS} jobs in the last 24 hours, which is its "
                                      "daily limit. Please try again tomorrow.")
@@ -255,14 +257,17 @@ def start_job(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
 @app.post("/{token}/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
     """Stop a job that has not finished. A job still waiting stops at once; one the worker is running stops at the
-    worker's next step (it checks before each one), so the money already spent on the current step is not recovered."""
+    worker's next step (it checks before each one), so the money already spent on the current step is not recovered.
+    Once the worker is saving the finished ads (stage 'uploading') it is too late to stop: the ads are paid for, so they
+    are kept and the page shows them."""
     jid = str(job_id)
     with connect() as conn:
         if not rows(conn, "select status from jobs where id = %s and created_by = 'web'", (jid,)):
             raise HTTPException(404, "No such job.")
         stopped = conn.execute("update jobs set status = 'cancelled', finished_at = now(), stage = null, "
                                "stage_detail = null where id = %s and created_by = 'web' and "
-                               "status in ('uploading', 'queued', 'working') returning id", (jid,)).fetchone()
+                               "status in ('uploading', 'queued', 'working') and "
+                               "not (status = 'working' and stage = 'uploading') returning id", (jid,)).fetchone()
         if stopped:
             conn.execute("insert into job_events (job_id, message) values (%s, %s)", (jid, "cancelled from the web page"))
     return job_view(jid)
@@ -318,16 +323,18 @@ def asset(name: str, token: str = Depends(link)) -> FileResponse:
 
 @app.get("/{token}/api/jobs")
 def recent_jobs(token: str = Depends(link)) -> dict:
+    head = ("select id::text as job_id, status, stage, stage_detail, error, created_at, finished_at, "
+            "source_name as label, coalesce(options->>'request', options->>'brief') as brief, "
+            "options->>'by' as by, (options->>'ads')::int as asked_ads, cost_usd, jsonb_array_length(sources) as clips, ")
+    tail = " from jobs where created_by = 'web' and status <> 'uploading' order by created_at desc limit %s"
+    counts = ("jsonb_array_length(jsonb_path_query_array(result, '$.ads[*]')) as ads_planned, "
+              "jsonb_array_length(jsonb_path_query_array(result, '$.ads[*] ? (@.file_key like_regex \".\")')) as ads_ready")
     with connect() as conn:
-        found = rows(conn, "select id::text as job_id, status, stage, stage_detail, error, created_at, finished_at, "
-                           "source_name as label, coalesce(options->>'request', options->>'brief') as brief, "
-                           "options->>'by' as by, (options->>'ads')::int as asked_ads, cost_usd, "
-                           "jsonb_array_length(sources) as clips, "
-                           "jsonb_array_length(jsonb_path_query_array(result, '$.ads[*]')) as ads_planned, "
-                           "jsonb_array_length(jsonb_path_query_array(result, '$.ads[*] ? (@.file_key like_regex \".\")')) "
-                           "as ads_ready "
-                           "from jobs where created_by = 'web' and status <> 'uploading' "
-                           "order by created_at desc limit %s", (RECENT,))
+        try:
+            found = rows(conn, head + counts + tail, (RECENT,))
+        except Exception as err:   # noqa: BLE001 - the ad counts are a nicety; the list itself must still load
+            log.warning("recent jobs: ad counts failed (%s); listing without them", type(err).__name__)
+            found = rows(conn, head + "0 as ads_planned, 0 as ads_ready" + tail, (RECENT,))
     out = []
     for r in found:
         percent, left = estimate(r["status"], r["stage"], r["stage_detail"], r["asked_ads"] or 3)

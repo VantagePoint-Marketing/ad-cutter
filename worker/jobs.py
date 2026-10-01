@@ -118,12 +118,14 @@ def set_stage(conn, job_id: str, stage: str, detail: str = "") -> bool:
 def finish(conn, job_id: str, status: str, *, result: dict | None = None, error: str | None = None,
            no_retry: bool = False) -> None:
     # only the worker that holds the job may finish it (another worker may have taken it over after an outage)
-    conn.execute("update jobs set status = %s, result = %s, error = %s, stage = null, stage_detail = null, "
-                 "locked_by = null, finished_at = case when %s in ('ready', 'failed') then now() end, "
-                 "max_attempts = case when %s then attempts else max_attempts end "
-                 "where id = %s and locked_by = %s and status = 'working'",
-                 (status, json.dumps(result) if result is not None else None, error, status, no_retry, job_id,
-                  WORKER_ID))
+    done = conn.execute("update jobs set status = %s, result = %s, error = %s, stage = null, stage_detail = null, "
+                        "locked_by = null, finished_at = case when %s in ('ready', 'failed') then now() end, "
+                        "max_attempts = case when %s then attempts else max_attempts end "
+                        "where id = %s and locked_by = %s and status = 'working'",
+                        (status, json.dumps(result) if result is not None else None, error, status, no_retry, job_id,
+                         WORKER_ID))
+    if getattr(done, "rowcount", 1) == 0:       # cancelled or taken over meanwhile: nothing changed, so nothing to log
+        return
     event(conn, job_id, f"{status}{': ' + error if error else ''}")
 
 
@@ -235,9 +237,10 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         return "cancelled"
     except Stop:
         with conn_factory() as conn:          # hand the job back without using up an attempt
-            conn.execute("update jobs set status = 'queued', attempts = greatest(attempts - 1, 0), locked_by = null, "
-                         "stage = null where id = %s and locked_by = %s and status = 'working'", (job_id, WORKER_ID))
-            event(conn, job_id, "worker restarting; job put back in the queue")
+            done = conn.execute("update jobs set status = 'queued', attempts = greatest(attempts - 1, 0), locked_by = null, "
+                                "stage = null where id = %s and locked_by = %s and status = 'working'", (job_id, WORKER_ID))
+            if getattr(done, "rowcount", 1) != 0:
+                event(conn, job_id, "worker restarting; job put back in the queue")
         raise
     except (ac.AdCutterError, BudgetExceeded) as err:        # a problem with this video or the budget: don't retry
         with conn_factory() as conn:
