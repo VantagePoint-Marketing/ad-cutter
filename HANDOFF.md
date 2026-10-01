@@ -17,15 +17,14 @@ people have. The only human input is uploading clips and describing what they wa
   (Railway picked the name). `/healthz` answers `{"ok": true, "link": ..., "uploads": "allowed from
   https://web-staging-c524.up.railway.app"}`; the bucket's CORS rule is set to that address.
 
-**One step left, and it needs Robert** (Claude's attempt was blocked by the auto-mode rule against writing secrets):
-Railway dashboard → App · Video Agent → staging → **web** → Variables → add `APP_LINK_TOKEN` = any 16+ letters,
-digits, `-` or `_` (the one Claude generated is in the chat, or make a fresh one). Railway redeploys the web service
-when the variable is saved; `/healthz` then shows `"link": "set"`. The team link is
-`https://web-staging-c524.up.railway.app/<token>/`.
+**Robert set `APP_LINK_TOKEN` on the web service on 2026-10-01** (Claude's own attempt was blocked by the auto-mode
+rule against writing secrets). `/healthz` shows `"link": "set"`, the page loads at the link, and both services run
+commit `3ca87de`. The team link is `https://web-staging-c524.up.railway.app/<token>/`; the token is in the Railway
+variable, never in this repo. To change it, edit the variable; Railway redeploys the page.
 
-**Then the first real test:** open the link, drop one or more clips (10 minutes of footage per job at most, 4 GB
-per clip), type what you want, click **Make ads**. Expect 10 to 20 minutes. If a job fails, the page shows the
-plain-English reason; `jobctl.py events <id>` in the container has the steps:
+**Next: the first real test through the page.** Open the link, drop one or more clips (10 minutes of footage per
+job at most, 4 GB per clip), type what you want, click **Make ads**. Expect 10 to 20 minutes. If a job fails, the
+page shows the plain-English reason; `jobctl.py events <id>` in the container has the steps:
 
 ```bash
 KEY="$HOME/.railway/ssh/railway_video_agent"
@@ -206,7 +205,7 @@ reference look for the page once Robert wants more than the plain `index.html`. 
 
 | Decision | Who |
 |---|---|
-| Set `APP_LINK_TOKEN` on the web service (the one step left; see the top) | Robert |
+| Run the first real job through the page and judge the ads | Robert |
 | Delete the orphan volume `postgres-volume` (`4c232b86...`) in staging | Robert |
 | Keep the $150 key in Railway or swap in the PC's $100/month key | Robert (he said keep it) |
 | Railway $150/month usage alert | Robert, in Railway billing settings |
