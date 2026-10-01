@@ -32,8 +32,9 @@ select l.job_id::text, l.verdict, l.note, a->>'name', a->>'headline', a->>'angle
 
 
 def one_line(text, limit: int) -> str:
-    """Staff text for a prompt: one line, no control characters, no backticks or braces, cut to `limit`."""
-    flat = re.sub(r"[\x00-\x1f\x7f`{}]+|\s+", " ", str(text or "")).strip()
+    """Staff text for a prompt: one line, no control characters, no backticks or braces, double quotes turned into
+    single quotes (so a note cannot close the quotes it is shown in), cut to `limit`."""
+    flat = re.sub(r"[\x00-\x1f\x7f`{}]+|\s+", " ", str(text or "")).replace('"', "'").strip()
     return flat[:limit].rstrip()
 
 

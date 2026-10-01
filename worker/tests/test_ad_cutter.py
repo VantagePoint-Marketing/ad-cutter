@@ -311,6 +311,9 @@ def test_write_notes_shows_the_self_check_for_each_ad(tmp_path):
     assert "**Self-check:** LOOK AT THIS: hook 2/5, cuts 4/5, request fit 3/5" in text
     assert "  - Slow start." in text and "  - 0:03 (hook) Nothing happens. Fix: Cut the first 2 s." in text
     assert "  - (request fit) Too long. Fix: Trim." in text and text.count("Self-check") == 1
+    review["problems"][1]["fix"] = ""
+    ac.write_notes(tmp_path, "A.MOV", plan, [], report, 0.1, {**CFG, "plan_model": "m"}, "")
+    assert "  - (request fit) Too long.\n" in (tmp_path / "Review Notes (2).md").read_text(encoding="utf-8")
     assert "\n\n**Primary text:**" in text                       # the blank lines between sections survive
 
 

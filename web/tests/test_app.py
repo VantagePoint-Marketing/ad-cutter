@@ -356,6 +356,12 @@ def test_the_scorecard_and_the_saved_verdict_come_with_each_ad(client):
            {"verdict": "good", "note": "changed my mind"}
 
 
+def test_a_nul_or_control_character_in_a_note_cannot_reach_the_database(client):
+    jid = ready_job(client)
+    res = client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "bad", "note": "bad\x00 note\x07!"})
+    assert res.status_code == 200 and res.json()["note"] == "bad note !" and client.db.feedback[0][3] == "bad note !"
+
+
 def test_feedback_is_saved_with_a_tidy_note(client):
     jid = ready_job(client)
     res = client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "bad", "note": "  Captions \n\n too small  "})
@@ -364,7 +370,8 @@ def test_feedback_is_saved_with_a_tidy_note(client):
     assert client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json={"verdict": "good"}).json()["note"] == ""
 
 
-@pytest.mark.parametrize("body", [{"verdict": "meh"}, {"note": "no verdict"}, {"verdict": "bad", "note": "x" * 1001}])
+@pytest.mark.parametrize("body", [{"verdict": "meh"}, {"note": "no verdict"}, {"verdict": "bad", "note": "x" * 1001},
+                                  {"verdict": "bad", "note": "x" * 4_001}])
 def test_bad_feedback_is_refused(client, body):
     jid = ready_job(client)
     assert client.post(f"/{TOKEN}/api/jobs/{jid}/ads/1/feedback", json=body).status_code in (400, 422)

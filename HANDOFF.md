@@ -3,6 +3,41 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## Step B (2026-10-01, built, reviewed and tested on the PC; NOT yet pushed or deployed)
+
+Self-check scorecards + feedback buttons, as the plan's table defines B. The bounded re-plan is step D and is NOT built:
+scores only inform the person, they change no ad.
+
+- `worker/review.py`: after the renders, one Gemini call per finished ad (zero-retention route, a 480p/10 fps copy of
+  the ad, `prompts/review_ads.md`) returns seven 1-5 scores (hook, cuts, story, captions, overlays, request_fit,
+  compliance), up to six problems (time, area, what, fix) and a verdict. Code checks every score is a whole 1-5
+  number, drops problems with unknown areas, and sets `look` by the plan's rule (min of cuts/captions/compliance <= 2,
+  hook <= 2, mean < 3.2, or speech match < 0.85, and at least one problem). A failed check is a note, never a failed
+  job. New job stage `checking`. Live test on a finished test ad: 1.3 cents; it flagged "30% more gains" and an
+  abrupt start.
+- **Spend rule (architect blocker, fixed):** one attempt per call (no retry), 300 s timeout; before each call the worst
+  case (`llm.estimate_cost`) must fit under `review_job_cap_usd` (0.30, `worker/config.json`) together with what the
+  job has spent on checks; a failed call counts at its worst case, and two failed calls in a row stop the job's remaining checks.
+  `review_enabled` switches it off. **Deviations from the plan text, to confirm with Robert:** one call per ad instead
+  of one call per job (about 2-5 cents an ad), and the 30-cent cap is for self-checks alone; the plan's 30 cents for
+  re-plans (step D) is a separate budget.
+- `worker/feedback.py`: the newest feedback (one item per job, at most 5 "Not right" + 3 "Good", 8 in all, notes
+  flattened to 300 characters, quotes/braces/backticks removed) goes into `prompts/plan_ads.md` under "What the team
+  said about earlier ads", with a rule that it is data and never overrides the request or the format rules. Passed as
+  `team_notes=` to `run_pipeline`. Review scores never reach the planning prompt.
+- `db/migrations/004_feedback.sql`: `ad_feedback` (job, ad number, good|bad, note up to 1000 chars; newest row wins).
+- Page: `POST api/jobs/<id>/ads/<k>/feedback` (only for a ready job's rendered ad; 60 clicks per job; body note under
+  4000 chars, control characters stripped), each ad shows its scorecard ("Worth a look before you run it" when flagged)
+  and Good / Not right buttons with a note box. The result JSON also holds `spoken`, `review` per ad and `review_cost`;
+  the self-check is in Review Notes.md.
+- Tests: worker 236 passed + 5 skipped, web 25 passed. `jobs.py --selftest` has a new `self-check copy` line to prove
+  the ffmpeg 5.1 container makes the small copy (only the PC's ffmpeg 8 has run it so far).
+- Reviews: code-reviewer approved; architect found one blocker (the spend cap, above) and six should-fixes, all applied
+  except the plan deviations, which need Robert's word.
+- **To verify after a deploy:** migration 004 applied; `RECENT_SQL` in `worker/feedback.py` and the page's three new
+  statements run on the real Postgres (rolled-back transaction); selftest shows `self-check copy` OK; then one real job
+  and a click on each button; compare the job's `cost_usd` with its `spend_ledger` rows labelled `check ad%`.
+
 ## Where we left off (latest)
 
 **First web job, 2026-10-01:** Robert uploaded a 33 s clip (this morning's finished ad, so its old captions were

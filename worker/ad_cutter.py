@@ -860,7 +860,7 @@ def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report:
                 L.append(f"  - {r['verdict']}")
             for p in r["problems"]:
                 when = f"{fmt_time(p['at_s'])} " if p["at_s"] is not None else ""
-                L.append(f"  - {when}({p['area'].replace('_', ' ')}) {p['what']} Fix: {p['fix']}")
+                L.append(f"  - {when}({p['area'].replace('_', ' ')}) {p['what']}" + (f" Fix: {p['fix']}" if p["fix"] else ""))
         L += ["", "**Primary text:**", "", *[f"> {x}" for x in str(ad.get("primary_text", "")).splitlines()], ""]
     claims = plan.get("claims_to_review") or []
     if claims:

@@ -11,4 +11,3 @@ create table if not exists ad_feedback (
     created_at  timestamptz not null default now()
 );
 create index if not exists ad_feedback_job_idx on ad_feedback (job_id, ad_k, created_at desc, id desc);
-create index if not exists ad_feedback_recent_idx on ad_feedback (created_at desc);

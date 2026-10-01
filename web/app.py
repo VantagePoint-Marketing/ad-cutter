@@ -31,7 +31,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Path as UrlPath
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "worker"))      # storage.py is shared with the worker (copied into the image)
@@ -223,7 +223,7 @@ def recent_jobs(token: str = Depends(link)) -> dict:
 
 class Feedback(BaseModel):
     verdict: Literal["good", "bad"]
-    note: str = ""
+    note: str = Field("", max_length=4000)         # a bound on the body; the tidied note is held to MAX_NOTE
 
 
 @app.post("/{token}/api/jobs/{job_id}/ads/{k}/feedback")
@@ -232,7 +232,7 @@ def save_feedback(job_id: uuid.UUID, body: Feedback, k: int = UrlPath(ge=1, le=2
     """"Good" or "Not right" (and an optional note) for one finished ad. The newest click for an ad wins; the worker
     shows the latest few to Gemini as examples when it plans the next ads."""
     jid = str(job_id)
-    note = re.sub(r"\s+", " ", body.note).strip()
+    note = re.sub(r"[\x00-\x1f\x7f\s]+", " ", body.note).strip()      # one line; Postgres refuses a NUL character
     if len(note) > MAX_NOTE:
         raise HTTPException(400, f"Keep the note under {MAX_NOTE:,} characters.")
     with connect() as conn:
