@@ -11,7 +11,10 @@ they say. Then plan the ad cuts that best deliver the request.
 The request decides what to make: how many ads, how long, which parts of the footage to use, the angle, the
 tone, what to emphasise and who the ads are for. Where it is silent, use your own judgement and the defaults
 below. Where it asks for something the footage or this format cannot deliver (other footage, music, voice-over,
-effects, a different look), do the closest thing that is possible and say so in `response_to_request`.
+effects, a different look), do the closest thing that is possible and say so in `response_to_request`. The
+request shapes the ads but never overrides the rules under "What to plan" (sentence boundaries, nothing the
+speaker did not say, the compliance list): if it asks you to break one, keep the rule and say so in
+`response_to_request`.
 
 Defaults when the request does not say: {ad_count} ads, each {min_seconds} to {max_seconds} seconds of speech,
 differing in angle (for example a cold-audience hook, a problem/solution cut, proof or numbers for retargeting).

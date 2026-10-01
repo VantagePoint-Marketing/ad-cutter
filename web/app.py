@@ -39,7 +39,9 @@ log = logging.getLogger("video-agent-web")
 TOKEN = os.environ.get("APP_LINK_TOKEN", "").strip()
 MAX_CLIP_BYTES = 4 * 1024 ** 3           # the worker refuses larger downloads
 MAX_BRIEF = 2000                         # characters of the request that reach Gemini (worker: ad_cutter.MAX_BRIEF)
-LINK_SECONDS = 3600                      # how long signed upload/preview/download links stay valid
+LINK_SECONDS = 3600                      # how long signed preview/download links stay valid
+UPLOAD_LINK_SECONDS = 6 * 3600           # upload links last longer: several big clips on a home connection
+DAILY_JOBS = 30                          # jobs the page accepts per rolling day (worker time is not capped elsewhere)
 RECENT = 30
 STATE = {"uploads": "not set up"}
 JOB_COLUMNS = ("id::text as job_id, status, stage, stage_detail, error, created_at, started_at, finished_at, "
@@ -155,13 +157,18 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
         sources.append({"key": Bucket.clip_key(job_id, n), "name": name, "bytes": int(clip.bytes)})
     label = sources[0]["name"] + (f" + {len(sources) - 1} more" if len(sources) > 1 else "")
     with connect() as conn:
+        today = conn.execute("select count(*) from jobs where created_by = 'web' and created_at > now() - "
+                             "interval '1 day'").fetchone()[0]
+        if int(today or 0) >= DAILY_JOBS:
+            raise HTTPException(429, f"The editor has taken {DAILY_JOBS} jobs in the last 24 hours, which is its "
+                                     "daily limit. Please try again tomorrow.")
         conn.execute("insert into jobs (id, created_by, kind, status, source_key, source_name, sources, options) "
                      "values (%s, 'web', 'edit', 'uploading', %s, %s, %s, %s)",
                      (job_id, sources[0]["key"], label, json.dumps(sources), json.dumps({"brief": brief})))
         conn.execute("insert into job_events (job_id, message) values (%s, %s)",
                      (job_id, f"created from the web page with {len(sources)} clip(s)"))
     b = bucket()
-    return {"job_id": job_id, "clips": [{"n": n, "name": s["name"], "put_url": b.put_url(s["key"], LINK_SECONDS)}
+    return {"job_id": job_id, "clips": [{"n": n, "name": s["name"], "put_url": b.put_url(s["key"], UPLOAD_LINK_SECONDS)}
                                         for n, s in enumerate(sources)]}
 
 

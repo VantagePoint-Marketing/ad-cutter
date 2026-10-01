@@ -62,8 +62,11 @@ export default defineRailway((ctx) => {
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 10,
     },
+    // Railway picks the real name when it creates the domain (staging got web-staging-c524.up.railway.app although
+    // the file asked for another name) and `config plan` does not diff the name; keep this entry equal to the real
+    // one once it exists, so the file stays a true record.
     networking: {
-      serviceDomains: { [production ? "video-agent.up.railway.app" : "video-agent-staging.up.railway.app"]: {} },
+      serviceDomains: { [production ? "web-production.up.railway.app" : "web-staging-c524.up.railway.app"]: {} },
     },
     env: {
       DATABASE_URL: db.env.DATABASE_URL,

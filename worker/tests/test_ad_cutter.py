@@ -300,6 +300,15 @@ def test_validate_plan_caps_the_number_of_ads_and_keeps_the_response():
     assert out["response_to_request"] == ""
 
 
+def test_safe_name_only_makes_names_the_bucket_accepts():
+    from storage import Bucket
+    for name in ("Don't Trade Blind", "Proof & Numbers", "Why 90% of Traders Lose", "Lag — the ’real’ cost",
+                 "  spaced   out  ", "", "x" * 80, "../../x"):
+        assert Bucket.result_key("j", f"Ad - {ac.safe_name(name)} (2026-10-01).mp4").endswith(".mp4")
+    assert ac.safe_name("Don't Trade Blind") == "Dont Trade Blind" and ac.safe_name("Proof & Numbers") == "Proof Numbers"
+    assert ac.safe_name("") == "Ad" and len(ac.safe_name("x" * 80)) == 60
+
+
 def test_write_notes_names_the_footage_and_the_request(tmp_path):
     plan = {"summary": "s", "response_to_request": "Did as asked.", "claims_to_review": []}
     ac.write_notes(tmp_path, "A.MOV + 1 more", plan, [], [], 0.1, {**CFG, "plan_model": "m"}, "make it punchy")
@@ -308,8 +317,9 @@ def test_write_notes_names_the_footage_and_the_request(tmp_path):
 
 
 def test_working_copy_args_guard_every_input_and_join_them():
-    args = ac.working_copy_args([Path("a.mov"), Path("b.mkv")], ["mov", "matroska"], 600)
+    args = ac.working_copy_args([Path("a.mov"), Path("b.mkv")], ["mov", "matroska"], [120.0, 30.5])
     assert args.count("-i") == 2 and args.count("-protocol_whitelist") == 2 and args.count("-t") == 2
+    assert "120.250" in args and "30.750" in args          # each input capped at its own checked length
     assert "-enable_drefs" in args and "matroska" in args
     fc = args[args.index("-filter_complex") + 1]
     assert "concat=n=2:v=1:a=1" in fc and "[0:v]scale=1080:1920" in fc and "[1:a]aresample=48000" in fc

@@ -90,14 +90,15 @@ def ffmpeg_to(dest: Path, args: list[str], timeout: float = 30 * 60) -> None:
     tmp.replace(dest)
 
 
-def working_copy_args(srcs: list[Path], demuxers: list[str], max_seconds: float) -> list[str]:
+def working_copy_args(srcs: list[Path], demuxers: list[str], seconds: list[float]) -> list[str]:
     """One ffmpeg pass: every clip is scaled and cropped to 1080x1920 at 30 fps with 48 kHz stereo sound, and the
-    clips are joined in order. Each input keeps its forced demuxer and protocol whitelist, and -t caps it at the
-    checked length in case a file's header understated it. The sample format, rate and layout are set explicitly on
-    every audio branch: concat needs them equal, and ffmpeg 5.1 (the worker image) will not guess them."""
+    clips are joined in order. Each input keeps its forced demuxer and protocol whitelist, and -t caps it at its
+    own checked length (plus a frame or two), so a header that understates a file's length cannot stretch the job
+    past the footage limit. The sample format, rate and layout are set explicitly on every audio branch: concat
+    needs them equal, and ffmpeg 5.1 (the worker image) will not guess them."""
     args, chain, labels = [], [], []
-    for n, (src, demuxer) in enumerate(zip(srcs, demuxers)):
-        args += [*ffmpeg_input(demuxer), "-t", f"{max_seconds:.0f}", "-i", str(src)]
+    for n, (src, demuxer, secs) in enumerate(zip(srcs, demuxers, seconds)):
+        args += [*ffmpeg_input(demuxer), "-t", f"{secs + 0.25:.3f}", "-i", str(src)]
         chain.append(f"[{n}:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,"
                      f"setsar=1,fps={FPS},format=yuv420p[v{n}]")
         chain.append(f"[{n}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a{n}]")
@@ -124,13 +125,14 @@ def prepare(srcs: Path | list[Path], work: Path, max_seconds: float = 600.0, nam
         except UnsafeMedia as err:
             which = "this video" if len(srcs) == 1 else f"clip {n + 1} ({names[n]})"
             raise AdCutterError(f"can't use {which}: {err}") from err
-    total = sum(min(i.duration, max_seconds) for i in infos)
+    seconds = [min(i.duration, max_seconds) for i in infos]
+    total = sum(seconds)
     if total > max_seconds:
         raise AdCutterError(f"the clips add up to {total / 60:.1f} minutes; the limit is {max_seconds / 60:.0f} minutes "
                             "of footage per job")
     if not full.exists():
         log.info("making the 1080x1920 working copy from %s clip(s)", len(srcs))
-        ffmpeg_to(full, working_copy_args(srcs, [i.demuxer for i in infos], max_seconds))
+        ffmpeg_to(full, working_copy_args(srcs, [i.demuxer for i in infos], seconds))
     if not wav.exists():
         ffmpeg_to(wav, ["-i", str(full), "-vn", "-ac", "1", "-ar", "16000"])
     if not proxy.exists():
@@ -146,10 +148,9 @@ def prepare(srcs: Path | list[Path], work: Path, max_seconds: float = 600.0, nam
                                      str(full)], capture_output=True, text=True, check=True,
                                     env=clean_env()).stdout.strip())
     clips, start = [], 0.0
-    for name, info in zip(names, infos):
-        seconds = min(info.duration, max_seconds)
-        clips.append({"name": name, "start": round(start, 3), "seconds": round(seconds, 3)})
-        start += seconds
+    for name, secs in zip(names, seconds):
+        clips.append({"name": name, "start": round(start, 3), "seconds": round(secs, 3)})
+        start += secs
     return {"full": full, "wav": wav, "proxy": proxy, "duration": duration, "clips": clips}
 
 
@@ -657,7 +658,9 @@ def unique_file(path: Path) -> Path:
 
 
 def safe_name(s: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]+', "", s).strip()[:60] or "Ad"
+    """A file-name-safe ad name: only the characters the bucket's result keys accept (storage._SAFE), so an
+    apostrophe or an ampersand in Gemini's name can never fail the upload after the renders are done."""
+    return re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9._ ()-]+", "", s)).strip()[:60] or "Ad"
 
 
 def fmt_time(s: float) -> str:

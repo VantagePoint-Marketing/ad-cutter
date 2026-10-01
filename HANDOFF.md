@@ -1,53 +1,47 @@
-# Handoff: VantagePoint Video Agent (W1 simplified: link-only page, built, not yet deployed)
+# Handoff: VantagePoint Video Agent (W1 simplified: link-only page, deployed to staging)
 
-Updated 2026-10-01, afternoon ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
+Updated 2026-10-01, late afternoon ET. Read this first. The memory file `video_agent_plan.md` carries the plan
+summary.
 
 ## Where we left off
 
 **Robert changed the W1 scope on 2026-10-01:** no sign-in, no accounts, no job management. One URL that only a few
 people have. The only human input is uploading clips and describing what they want; Gemini decides everything else.
-"It shouldn't be this complicated and high security." That is what is now built on branch `w0-worker-cloud`
-(latest commit; see `git log`), tested, reviewed, and **waiting on three steps that need Robert**:
+"It shouldn't be this complicated and high security." That is built, tested, reviewed, pushed on branch
+`w0-worker-cloud` and **deployed to Railway staging** (Robert: "push it and apply the railway config"):
 
-1. **Push the branch** (Claude asks before every push). The push starts the worker's build on staging
-   (3 to 5 minutes); its pre-deploy step applies `db/migrations/002_web.sql`.
-2. **Create the web service**, from the repo folder in PowerShell (the plan was checked read-only: 1 to add,
-   1 harmless change on the worker, 0 to destroy):
+- Worker: commit `c407ced` live, migration `002_web.sql` applied (checked: `schema_migrations` has 001 and 002,
+  `jobs_status_check` includes 'uploading', `sources` is jsonb default `[]`), `--selftest` 9 of 9 OK in the
+  container, including the new `working copy chain` (two clips joined on ffmpeg 5.1).
+- Web: service `web` `d347c459-3ebf-485e-993b-c07332b0dd79`, address **`https://web-staging-c524.up.railway.app`**
+  (Railway picked the name). `/healthz` answers `{"ok": true, "link": ..., "uploads": "allowed from
+  https://web-staging-c524.up.railway.app"}`; the bucket's CORS rule is set to that address.
 
-   ```powershell
-   cd C:\Users\RobB.CORP\Projects\ad-cutter
-   npm.cmd run railway -- config apply
-   ```
-
-   It shows the plan and asks "yes". Expected: `+ Create service web` with the address
-   `video-agent-staging.up.railway.app`. If Railway refuses that name (already taken), remove the
-   `networking` block from `.railway/railway.ts`, apply again, then click **Generate Domain** on the web service in
-   the dashboard (Settings → Networking) and note the address in the file's comment.
-3. **Set the link token:** Railway dashboard → App · Video Agent → staging → **web** → Variables → add
-   `APP_LINK_TOKEN`. Any 16+ letters/digits; this makes one in PowerShell and copies it to the clipboard:
-
-   ```powershell
-   $t = [guid]::NewGuid().ToString("N"); Set-Clipboard $t; $t
-   ```
-
-   Railway redeploys the web service when the variable is saved. The team link is then
-   `https://video-agent-staging.up.railway.app/<token>/` (keep the trailing slash or not; both work).
+**One step left, and it needs Robert** (Claude's attempt was blocked by the auto-mode rule against writing secrets):
+Railway dashboard → App · Video Agent → staging → **web** → Variables → add `APP_LINK_TOKEN` = any 16+ letters,
+digits, `-` or `_` (the one Claude generated is in the chat, or make a fresh one). Railway redeploys the web service
+when the variable is saved; `/healthz` then shows `"link": "set"`. The team link is
+`https://web-staging-c524.up.railway.app/<token>/`.
 
 **Then the first real test:** open the link, drop one or more clips (10 minutes of footage per job at most, 4 GB
-per clip), type what you want, click **Make ads**. Expect 10 to 20 minutes. `https://<domain>/healthz` shows
-`"link": "set"` and `"uploads": "allowed from https://..."` when the service is ready. Wait for the worker's new
-deployment to be Active before the first upload: the page needs migration 002, which the worker applies.
-
-What to watch on the first run: the worker's `--selftest` now includes `working copy chain` (two generated clips
-joined through the real ffmpeg 5.1 chain); run it before the first job:
+per clip), type what you want, click **Make ads**. Expect 10 to 20 minutes. If a job fails, the page shows the
+plain-English reason; `jobctl.py events <id>` in the container has the steps:
 
 ```bash
 KEY="$HOME/.railway/ssh/railway_video_agent"
 npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python jobs.py --selftest'
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py list'     # also: status, events, result, requeue, spend
 ```
 
-If a job fails, the page shows the plain-English reason; `jobctl.py events <id>` in the container has the steps.
 In Robert's PowerShell, `npm` fails ("running scripts is disabled"); he must type `npm.cmd`.
+
+**Reviews of this change (2026-10-01):** the architect found one blocker, fixed in the follow-up commit: Gemini's ad
+names with an apostrophe or ampersand ("Don't Trade Blind") passed `safe_name` but failed `Bucket.result_key` at
+upload time, after all the renders, and the generic retry then paid for two more Gemini plans; `safe_name` now
+keeps only the characters result keys accept. Also added from that review: each input is capped at its own checked
+length (a lying header can't stretch a job past 10 minutes), a cap of 30 web jobs per rolling day (429), the prompt
+says the request never overrides the rules, and upload links last 6 hours. The code-reviewer's report is in the
+follow-up commit message if it arrived; otherwise it is still pending.
 
 ## What the page does (web/)
 
@@ -65,7 +59,7 @@ In Robert's PowerShell, `npm` fails ("running scripts is disabled"); he must typ
 - `web/static/index.html` is the whole front end (vanilla JS, Apple-ish minimal). The Figma design can replace it
   later; the API stays.
 - Limits: 1 to 10 clips, 4 GB per clip, 2,000 characters of request, 10 minutes of footage per job (the worker
-  enforces the last one; the page estimates it from the files' metadata and warns).
+  enforces the last one; the page estimates it from the files' metadata and warns), 30 jobs per rolling day.
 - Image: `web/Dockerfile` (python slim, same digest as the worker, non-root, read-only files, no video tools);
   it copies `worker/storage.py`, which both services share. Health check `/healthz`.
 - Tests: `cd web && python -m pytest -q` (12 pass; fake DB and bucket).
@@ -115,8 +109,14 @@ In Robert's PowerShell, `npm` fails ("running scripts is disabled"); he must typ
 - This commit: W1 simplified (see the two sections above), `web/`, migration 002, docs.
 
 **Reviews:** every commit was code-reviewer approved after its blockers were fixed; the architect reviewed keys,
-spend and security for W0 (5 blockers fixed) and the link-only exposure for W1 (see the commit message for the
-outcome). Follow-ups still open, none blocking:
+spend and security for W0 (5 blockers fixed) and the link-only exposure for W1 (verdict: the design holds; without
+the token an outsider reaches only `/healthz`; with it a person cannot reach another job's footage or pass the
+Gemini caps). Follow-ups still open, none blocking:
+- Budget per environment: each database has its own ledger, so production needs its own OpenRouter key (or a
+  lower `MONTHLY_BUDGET_USD` on staging) and its own `APP_LINK_TOKEN`.
+- Retention: raw uploads and jobs abandoned in 'uploading' are never deleted; decide a policy before production.
+- An outsider can POST a large body to a wrong-token URL (FastAPI reads it before the link check): the worst case
+  is a web-service restart, no data and no spend. Not worth a body-size middleware now.
 - Least-privilege DB roles (the web service uses the owner connection like the worker).
 - killpg on render timeout; rlimits. `render_body` has no timeout (a hung ffmpeg hangs `--selftest`).
 - Save raw_plan right after Gemini. ETag IfMatch on download. pip `--require-hashes`; pytest out of the worker
@@ -144,10 +144,13 @@ reference look for the page once Robert wants more than the plain `index.html`. 
   **"App · Video Agent"** `d30013fd-1056-4a21-9a8d-730f81cd3390`.
   - Environments: `staging` `9c59f900-b58f-4bd6-89cc-1eb961834e09`, `production`
     `ad3bf035-253a-4e3e-92e0-9dc81d28062e` (empty; do not apply the IaC there until `main` has `worker/` and `web/`).
-  - Staging: `worker` `5be39f23-9254-4896-bf5e-9640fbe1348b` (running commit `a647d5a` until the push),
-    `Postgres` `cf176990-8e41-4ba9-8213-870ab38ead97` (volume `postgres-volume-oDH6` 50 GB, no TCP proxy), bucket
-    `media` `9865e018-1e3f-4bc3-9f2d-206148045030` (iad, Tigris-backed; CORS rule now set for the staging domain).
-    `web`: not created yet (step 2 above).
+  - Staging: `worker` `5be39f23-9254-4896-bf5e-9640fbe1348b` (commit `c407ced`, deployment `bf9e37d0`),
+    `web` `d347c459-3ebf-485e-993b-c07332b0dd79` (`https://web-staging-c524.up.railway.app`, domain id
+    `0739cc7f-b576-42cf-84ed-031072653c62`), `Postgres` `cf176990-8e41-4ba9-8213-870ab38ead97` (volume
+    `postgres-volume-oDH6` 50 GB, no TCP proxy), bucket `media` `9865e018-1e3f-4bc3-9f2d-206148045030` (iad,
+    Tigris-backed; the web service sets its CORS rule at every start).
+  - `railway config plan` keeps reporting `restartPolicyType/MaxRetries (null → ON_FAILURE/10)` for both services
+    even right after an apply; Railway seems not to persist or report those two fields. Harmless; ignore it.
   - **Orphan volume:** `postgres-volume` `4c232b86-e16d-4b38-9e0b-705cec3dde7f`, 50 GB, attached to nothing
     (created by a stale staged patch on 2026-10-01). Deleting it is Robert's call (a few dollars a month otherwise).
   - The worker's variables: the seven from the IaC plus `OPENROUTER_VIDEO_AGENT_KEY`. **The key in Railway is not
@@ -177,10 +180,11 @@ reference look for the page once Robert wants more than the plain `index.html`. 
   started a build; `search-docs`/`fetch-docs` read docs.railway.com (that is how the bucket CORS answer was found).
 - Railway IaC: `domains: [...]` is refused for `*.up.railway.app` names ("Custom-domain registration is not
   supported"); `networking.serviceDomains` is accepted by `config plan`. `config plan` is read-only and safe.
-- Auto permission mode (classifier) denials so far: creating buckets/Postgres/services live, `update-service`,
-  writing secrets, `~/.ssh`, and starting or requeueing jobs (they spend Gemini money). A denial covers the
-  outcome; hand it to Robert or use the asking permission mode. `railway run -s worker -e staging -- python
-  <script>` (bucket variables injected) was allowed and is how the bucket check ran.
+- Auto permission mode (classifier) denials so far: creating buckets/Postgres live through the MCP tools,
+  `update-service`, writing any secret or variable (`set-variables` for `APP_LINK_TOKEN` too), `~/.ssh`, and
+  starting or requeueing jobs (they spend Gemini money). A denial covers the outcome; hand it to Robert or use the
+  asking permission mode. Allowed: `railway config apply --yes` from Bash once Robert asked for it, `railway run
+  -s worker -e staging -- python <script>` (bucket variables injected), and `railway ssh` commands.
 - `npm run railway -- ...` is required on Windows (see `scripts/railway.mjs`); in Robert's PowerShell, `npm.cmd`.
 - Git Bash rewrites bare `/app/...` arguments; wrap container commands in `sh -c '...'`. Piping a script into
   `railway ssh -- sh -s` works and avoids quoting problems.
@@ -196,7 +200,7 @@ reference look for the page once Robert wants more than the plain `index.html`. 
 
 | Decision | Who |
 |---|---|
-| Push the branch, apply the IaC, set `APP_LINK_TOKEN` (steps 1 to 3 above) | Robert |
+| Set `APP_LINK_TOKEN` on the web service (the one step left; see the top) | Robert |
 | Delete the orphan volume `postgres-volume` (`4c232b86...`) in staging | Robert |
 | Keep the $150 key in Railway or swap in the PC's $100/month key | Robert (he said keep it) |
 | Railway $150/month usage alert | Robert, in Railway billing settings |

@@ -71,7 +71,9 @@ class FakeDB:
                 job["status"] = "queued"
             return Cursor([], [])
         if sql.startswith("select count(*)"):
-            return Cursor(["count"], [(2,)])
+            if "interval '1 day'" in sql:          # the daily cap: every job the page made counts
+                return Cursor(["count"], [(len(self.jobs),)])
+            return Cursor(["count"], [(2,)])       # queue position
         cols = self._cols(sql)
         if "where id = %s" in sql:
             job = self.jobs.get(params[0])
@@ -163,7 +165,7 @@ def test_create_job_hands_out_one_upload_link_per_clip_in_order(client):
     assert UUID.match(job["job_id"])
     jid = job["job_id"]
     assert [c["n"] for c in job["clips"]] == [0, 1] and [c["name"] for c in job["clips"]] == ["A.MOV", "B.MOV"]
-    assert job["clips"][0]["put_url"] == f"https://bucket.test/uploads/{jid}/clip-0?put&expires=3600"
+    assert job["clips"][0]["put_url"] == f"https://bucket.test/uploads/{jid}/clip-0?put&expires=21600"
     row = client.db.jobs[jid]
     assert row["status"] == "uploading" and row["source_name"] == "A.MOV + 1 more"
     assert row["sources"] == [{"key": f"uploads/{jid}/clip-0", "name": "A.MOV", "bytes": 100},
@@ -187,6 +189,14 @@ def test_create_job_cleans_names_and_refuses_bad_input(client):
         res = client.post(f"/{TOKEN}/api/jobs", json=body)
         assert res.status_code == 400 and message in res.json()["detail"], (body, res.text)
     assert client.post(f"/{TOKEN}/api/jobs", json={"clips": "nope"}).status_code == 422
+
+
+def test_the_page_stops_taking_jobs_after_the_daily_limit(client, monkeypatch):
+    monkeypatch.setattr(web, "DAILY_JOBS", 2)
+    new_job(client)
+    new_job(client)
+    res = client.post(f"/{TOKEN}/api/jobs", json={"brief": "", "clips": [{"name": "c.mov", "bytes": 1}]})
+    assert res.status_code == 429 and "daily limit" in res.json()["detail"] and len(client.db.jobs) == 2
 
 
 # ---------------------------------------------------------------- starting it
