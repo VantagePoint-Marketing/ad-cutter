@@ -9,6 +9,9 @@ bucket variables are set, for example `railway ssh -- sh -c 'cd /app/worker && p
     python tools/jobctl.py requeue <job_id>       run a failed job again, e.g. after a pipeline fix
     python tools/jobctl.py list [--limit 20]
     python tools/jobctl.py spend                  every month's ledger totals
+    python tools/jobctl.py library                what the reference library has studied (one row per video)
+    python tools/jobctl.py lessons <video id>     every kept lesson of one video, in order
+    python tools/jobctl.py library-retry <video id | failed>   put one failed video, or all of them, back in line
 
 Upload the source first with tools/upload_source.py (from a PC, through `railway run`); it prints the job id.
 `enqueue` only creates single-clip 'edit' jobs; the web page creates multi-clip ones. Every command prints JSON.
@@ -126,6 +129,45 @@ def spend(args) -> dict:
     return {"months": months, "ledger": ledger}
 
 
+def library_status(args) -> dict:
+    with connect() as conn:
+        videos = rows(conn, "select s.external_id as id, s.status, round(s.seconds / 60.0, 1) as minutes, s.attempts, "
+                            "left(s.title, 60) as title, s.reason, "
+                            "(select count(distinct n.window_start) from ref_notes n "
+                            " where n.source_id = s.id and n.reference_ok) as parts_ok, "
+                            "(select count(*) from ref_notes n where n.source_id = s.id and not n.reference_ok) "
+                            "as rejected "
+                            "from ref_sources s order by s.tier, s.id")
+        today = rows(conn, "select api, used from api_quota where period = to_char(now() at time zone "
+                           "'America/Los_Angeles', 'YYYY-MM-DD')")
+    return {"today": today, "videos": videos}
+
+
+def lessons(args) -> list[dict]:
+    with connect() as conn:
+        notes = rows(conn, "select distinct on (n.window_start) n.window_start, n.model, n.note from ref_notes n "
+                           "join ref_sources s on s.id = n.source_id where s.external_id = %s and n.reference_ok "
+                           "order by n.window_start, n.created_at desc", (args.video_id,))
+    out = []
+    for n in notes:
+        for lesson in n["note"].get("lessons", []):
+            out.append({"at": f"{int(lesson['at_s']) // 60}:{int(lesson['at_s']) % 60:02d}", "lever": lesson["lever"],
+                        "topic": lesson["topic"], "principle": lesson["principle"], "model": n["model"]})
+    return out
+
+
+def library_retry(args) -> dict:
+    """Failed library videos back to 'new' with a fresh attempt count (after fixing whatever made them fail)."""
+    with connect() as conn:
+        if args.target == "failed":
+            done = rows(conn, "update ref_sources set status = 'new', attempts = 0, reason = null, updated_at = now() "
+                              "where status = 'failed' returning external_id")
+        else:
+            done = rows(conn, "update ref_sources set status = 'new', attempts = 0, reason = null, updated_at = now() "
+                              "where status = 'failed' and external_id = %s returning external_id", (args.target,))
+    return {"requeued": [r["external_id"] for r in done]}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -142,6 +184,13 @@ def main(argv=None) -> int:
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(fn=list_jobs)
     sub.add_parser("spend").set_defaults(fn=spend)
+    sub.add_parser("library").set_defaults(fn=library_status)
+    p = sub.add_parser("lessons")
+    p.add_argument("video_id")
+    p.set_defaults(fn=lessons)
+    p = sub.add_parser("library-retry")
+    p.add_argument("target", help="a YouTube video id, or 'failed' for every failed video")
+    p.set_defaults(fn=library_retry)
     args = ap.parse_args(argv)
     print(json.dumps(args.fn(args), indent=2, default=str))
     return 0

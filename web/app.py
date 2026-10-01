@@ -44,6 +44,7 @@ LINK_SECONDS = 3600                      # how long signed preview/download link
 UPLOAD_LINK_SECONDS = 6 * 3600           # upload links last longer: several big clips on a home connection
 DAILY_JOBS = 30                          # jobs the page accepts per rolling day (worker time is not capped elsewhere)
 RECENT = 30
+LIBRARY_REMOVED = "removed from the foundation list"     # worker/library.py REMOVED
 STATE = {"uploads": "not set up"}
 JOB_COLUMNS = ("id::text as job_id, status, stage, stage_detail, error, created_at, started_at, finished_at, "
                "source_name, sources, options, result, cost_usd")
@@ -214,6 +215,50 @@ def recent_jobs(token: str = Depends(link)) -> dict:
                            "from jobs where created_by = 'web' and status <> 'uploading' "
                            "order by created_at desc limit %s", (RECENT,))
     return {"jobs": [{**r, "created_at": iso(r["created_at"]), "finished_at": iso(r["finished_at"])} for r in found]}
+
+
+@app.get("/{token}/api/library")
+def library(lessons: bool = False, token: str = Depends(link)) -> dict:
+    """What the agent has studied: one entry per video, with its kept lessons when `lessons` is true."""
+    import psycopg
+    try:
+        with connect() as conn:
+            sources = rows(conn, "select id, tier, external_id, title, channel, seconds, status, reason "
+                                 "from ref_sources where not (status = 'skipped' and reason is not distinct from %s) "
+                                 "order by tier, id", (LIBRARY_REMOVED,))
+            # the lessons themselves only when asked for; the page's summary line needs counts only
+            notes = rows(conn, "select distinct on (source_id, window_start) source_id, window_start, "
+                               "note->>'summary' as summary, "
+                               "jsonb_array_length(coalesce(note->'lessons', '[]'::jsonb)) as lesson_count, "
+                               "case when %s then note->'lessons' end as lessons "
+                               "from ref_notes where reference_ok order by source_id, window_start, created_at desc",
+                         (lessons,))
+            used = conn.execute("select coalesce(sum(used), 0) from api_quota where api = 'gemini-free-video-seconds' "
+                                "and period = to_char(now() at time zone 'America/Los_Angeles', 'YYYY-MM-DD')"
+                                ).fetchone()[0]
+    except psycopg.errors.UndefinedTable:
+        return {"videos": [], "studied": 0, "total": 0, "lessons": 0, "hours_today": 0}
+    by_source: dict[int, list] = {}
+    for n in sorted(notes, key=lambda n: (n["source_id"], n["window_start"])):
+        by_source.setdefault(n["source_id"], []).append(n)
+    videos, total_lessons = [], 0
+    for s in sources:
+        parts = by_source.get(s["id"], [])
+        count = sum(int(p["lesson_count"] or 0) for p in parts)
+        found = sorted((x for p in parts for x in (p["lessons"] or []) if isinstance(x, dict)),
+                       key=lambda x: x.get("at_s") or 0)
+        total_lessons += count
+        v = {"id": s["external_id"], "tier": s["tier"], "title": s["title"], "channel": s["channel"],
+             "minutes": round((s["seconds"] or 0) / 60, 1), "status": s["status"], "reason": s["reason"],
+             "url": f"https://www.youtube.com/watch?v={s['external_id']}", "lesson_count": count,
+             "summary": (parts[0]["summary"] if parts else "") or ""}
+        if lessons:
+            v["lessons"] = [{"at_s": x.get("at_s"), "topic": x.get("topic"), "principle": x.get("principle"),
+                             "lever": x.get("lever"), "how_we_apply": x.get("how_we_apply")} for x in found]
+        videos.append(v)
+    studied = sum(1 for v in videos if v["status"] == "done")
+    return {"videos": videos, "studied": studied, "total": len(videos), "lessons": total_lessons,
+            "hours_today": round(float(used) / 3600, 1)}
 
 
 def job_view(job_id: str) -> dict:

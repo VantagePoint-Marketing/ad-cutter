@@ -23,6 +23,9 @@ Secrets never go in this file. Two values are pasted into the Railway dashboard 
 `preserve()`:
 
 - `OPENROUTER_VIDEO_AGENT_KEY` on the **worker** (worker service → Variables).
+- `GEMINI_API_KEY` and `YOUTUBE_API_KEY` on the **worker**: the reference library (Google AI Studio key on a
+  project without billing, so it stays on the free tier; YouTube Data API key). `LIBRARY_ENABLED` is set by this
+  file ("1" on staging, "0" on production).
 - `APP_LINK_TOKEN` on the **web** service: the secret part of the page's link, `https://<domain>/<token>/`.
   16 or more letters, digits, `-` or `_`. Until it is set, the service runs but every page is a 404 and
   `/healthz` says why.

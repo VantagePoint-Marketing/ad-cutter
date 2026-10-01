@@ -1,9 +1,38 @@
-# Handoff: VantagePoint Video Agent (W1 simplified: link-only page, deployed to staging)
+# Handoff: VantagePoint Video Agent (link-only page live on staging; library and loop, step A)
 
-Updated 2026-10-01, late afternoon ET. Read this first. The memory file `video_agent_plan.md` carries the plan
-summary.
+Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
+The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
-## Where we left off
+## Where we left off (latest)
+
+**First web job, 2026-10-01:** Robert uploaded a 33 s clip (this morning's finished ad, so its old captions were
+burned in) with the request "create an attention grabbing facebook ad". 2 ads in 3 min 46 s for $0.04 of Gemini,
+both checks passed, two claims flagged. Robert: "It's still not perfect. It needs to be trained and it needs to work
+in a loop. There's a lot of mistakes." He has not yet said which mistakes; ask for the top three in the next ad he
+judges (mechanical ones get fixed directly; taste goes to the loop).
+
+**Plan approved ("yes", 2026-10-01): the library and the loop.** Build order: A library plumbing + tier 1 (his 17
+craft videos), B feedback buttons + self-check, C playbook v1 (Robert reads it before it goes live), D one bounded
+re-plan, E tier 2 (Foreplay, channels, search; Warrior Trading dropped: FTC 2022) and playbook v2. Decisions:
+YouTube watching on Google's free tier (Flash, public videos only; Robert: "strictly talking about watching the
+youtube videos via API not rendering my edits"); his own footage stays on OpenRouter zero-retention; billing is
+off on the Gemini key's Google project.
+
+**Step A is built** (see "The reference library" below): tests pass, every SQL statement checked on staging
+Postgres in a rolled-back transaction, code review in progress or done (see `git log`). **Waiting on Robert:** paste
+`GEMINI_API_KEY` and `YOUTUBE_API_KEY` into Railway → staging → worker → Variables (same values as the Windows user
+variables of the same names on his PC; the auto-mode rule blocks Claude from writing secrets). The worker then
+studies the 17 videos while idle (about 4.5 hours of video; 27 parts of up to 10 minutes; a day at most). Watch it:
+
+```bash
+KEY="$HOME/.railway/ssh/railway_video_agent"
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py library'
+npm run railway -- ssh -i "$KEY" -- sh -c 'cd /app/worker && python tools/jobctl.py lessons QR8LxximqWI'
+```
+
+Then show Robert the first notes (the page's Library section, "Show the lessons") and start step B.
+
+## Where we left off (W1, earlier on 2026-10-01)
 
 **Robert changed the W1 scope on 2026-10-01:** no sign-in, no accounts, no job management. One URL that only a few
 people have. The only human input is uploading clips and describing what they want; Gemini decides everything else.
@@ -47,6 +76,36 @@ worker, a replan/rebuild may read its parent's clips, uvicorn's access log is of
 and `/healthz` names only an error's type, and `validate_plan` notes a segment that runs across a clip join.
 Also verified on staging after that: the page's exact SQL against the real Postgres (in a rolled-back
 transaction), and the browser's CORS preflight to the bucket (200, the page's origin, PUT).
+
+## The reference library (worker/library.py, step A)
+
+- **Tier 1 list:** `worker/library/foundation.txt`, Robert's 17 essential HillierSmith videos on the craft of
+  editing (from his 30; 5 optional and 8 left-out lines stay in the file as comments with reasons). Edit the file
+  and deploy to change it; removed lines become `skipped` and leave the library.
+- **Watching:** `worker/gemini_free.py` calls Google's Gemini API free tier with only a YouTube watch URL built from
+  a validated id, an optional time window, and the allow-listed prompt `prompts/watch_craft.md`. Nothing is
+  downloaded. Models in order (config `library.watch_models`): gemini-3.5-flash, gemini-3.8-flash, gemini-2.5-flash;
+  a busy model falls back to the next; a retry after a rejected note starts with a different model.
+- **Parts:** videos longer than 12 minutes are watched in parts of 10 minutes (`windows()`); Gemini reports times
+  from the start of the part (verified on the live API), and the code makes them whole-video times.
+- **"Really watched" checks** (`validate_note`): reported seconds within 15% of the part, first and last words
+  given, at least 50 video tokens per second (from Google's own usage count), lessons with a time outside the part
+  dropped; more than 40% dropped rejects the note. Three rejected notes mark the video failed.
+- **Limits:** 7 hours of free video per Pacific day (Google allows 8), 2,000 YouTube units per day, both in
+  `api_quota`. Busy: pause 10 min. Rate limit: 30 min, the third in a row 6 hours. 403 on a video: the key is
+  checked first, so a broken key pauses instead of failing every video.
+- **Runs only when idle:** `jobs.serve()` claims editing jobs first; one library step is one part (about 1 to 2
+  minutes), so a new job waits at most that long. Off unless `LIBRARY_ENABLED=1` and both keys are set (production
+  has it set to 0 in `.railway/railway.ts`).
+- **Data:** `ref_sources` (one row per video, metadata refreshed after 25 days per YouTube's 30-day rule),
+  `ref_notes` (one row per watched part, kept even when rejected, with the problems), `api_quota`. Migration
+  `003_library.sql`.
+- **Seeing it:** the page's Library section (`GET api/library`, lessons on request), `jobctl.py library` and
+  `jobctl.py lessons <video id>` in the container, and the self-test's `library` line.
+- **Spike results (2026-10-01, $0):** 3.5 Flash watched by link correctly (about 90 tokens per second of video);
+  2.5 Flash about 290 per second and put 5 of 14 lesson times past the end of a 6-minute video (hence the time
+  checks); 3.8 Flash and 2.5 Flash were often "high demand" (503); a fake id gives 403; `video_metadata` start/end
+  offsets work for YouTube links.
 
 ## What the page does (web/)
 
@@ -205,7 +264,9 @@ reference look for the page once Robert wants more than the plain `index.html`. 
 
 | Decision | Who |
 |---|---|
-| Run the first real job through the page and judge the ads | Robert |
+| Paste `GEMINI_API_KEY` and `YOUTUBE_API_KEY` into the worker's Railway variables (starts the library) | Robert |
+| Name the top mistakes in the ads (mechanical fixes vs. taste for the loop) | Robert |
+| Read playbook v1 before it goes into the prompts (step C) | Robert |
 | Delete the orphan volume `postgres-volume` (`4c232b86...`) in staging | Robert |
 | Keep the $150 key in Railway or swap in the PC's $100/month key | Robert (he said keep it) |
 | Railway $150/month usage alert | Robert, in Railway billing settings |

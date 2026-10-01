@@ -1,0 +1,41 @@
+# Tier 1 of the reference library: the art of video editing. From Robert's list of 30 HillierSmith videos
+# (2026-10-01), narrowed on his instruction to the ones that teach editing: hooks and intros, pacing, cuts,
+# music and sound, story structure, retention, and mistakes to avoid. Gemini watches each by URL through the
+# AI Studio route; nothing is downloaded. One public YouTube link per line; lines starting with # are ignored.
+# Costs are one-time estimates at full video detail (Gemini 3.1 Pro, 2026-10-01 prices).
+
+# --- essential (17 videos, about 4.5 hours, about $19.50 once) ---
+https://www.youtube.com/watch?v=9TG1joKdSCY   # The "5 Second Intro" Is Dead, Here's Why (25 min, $1.87): hooks
+https://www.youtube.com/watch?v=GS67Z0nj15Y   # The 5 Videos Everyone Will Copy in 2026 (15 min, $1.15): formats that work now
+https://www.youtube.com/watch?v=mPhhBgTIG2Y   # The Editing That Makes Your Story 10x Deeper (15 min, $1.11): story
+https://www.youtube.com/watch?v=IROKEjmIIlM   # When Editing Ruins Your Video: what NOT to do (36 min, $2.68): mistakes
+https://www.youtube.com/watch?v=CwQi9k-0yNY   # Saving Bad Videos With Only Music (15 min, $1.10): music and sound
+https://www.youtube.com/watch?v=q9O-3ezgS3Y   # 5 Editing Secrets You'll Be Embarrassed You Didn't Know (13 min, $0.99)
+https://www.youtube.com/watch?v=8hw-iMwxUew   # He Went Viral But Then FAILED. I Told Him Why (17 min, $1.30): retention
+https://www.youtube.com/watch?v=XIVSa3wo0JU   # 3 Editing Secrets I Wish I Knew Earlier (11 min, $0.86)
+https://www.youtube.com/watch?v=1SmdeL-WN40   # The One Step You're Neglecting In Your Edits (17 min, $1.29)
+https://www.youtube.com/watch?v=39QXz1bbWxw   # Pro Editor Reacts To Beem's Worst Video (14 min, $1.10): critique
+https://www.youtube.com/watch?v=nz-fsMaO2-g   # Pro Editor Tells ZHC Why His Videos Are Bad (13 min, $1.01): critique
+https://www.youtube.com/watch?v=2v-Dv5YYaGQ   # How Logan Paul's Best Video Was Made: editing breakdown (14 min, $1.03)
+https://www.youtube.com/watch?v=GpCWFsGvq0Q   # What Pixar Can Teach MrBeast (9 min, $0.37): story structure
+https://www.youtube.com/watch?v=qxPABRWoYfg   # With Only Stock Footage I Made A $1,000,000 Commercial For $500 (9 min, $0.36): ads
+https://www.youtube.com/watch?v=4EDh6RHLyPQ   # Editing breakdown: a Logan Paul vlog (11 min, $0.85)
+https://www.youtube.com/watch?v=QR8LxximqWI   # 5 MORE Editing Mistakes YouTubers Do (6 min, $0.25): mistakes
+https://www.youtube.com/watch?v=m8PAiKUVosk   # Logan Paul Called Me to Save an Embarrassing Edit (30 min, $2.22): fixing an edit
+
+# --- optional, not essential; add a line back to include it ---
+# https://www.youtube.com/watch?v=zr-0xNZy-kc   # Roasting MrBeast's Editing For 1 Hour (72 min, $5.26): retention lessons, but long
+# https://www.youtube.com/watch?v=YXCB-Forlk4   # Can I Edit a Hollywood Trailer With No Experience (30 min, $2.20): experiment
+# https://www.youtube.com/watch?v=zEDinnP4x4Y   # I Edited Fast & Furious and Made It Better (13 min, $0.99): film re-edit
+# https://www.youtube.com/watch?v=9hxUPmuaaKA   # I Made The Batman Trailer Better (10 min, $0.40): trailer re-edit
+# https://www.youtube.com/watch?v=PBMvASh_Noo   # How To Edit Documentaries w/ Sam & Colby (19 min, $1.41): long-form format
+
+# --- left out: commentary, film reviews, the channel's own films, software, drama ---
+# https://www.youtube.com/watch?v=s8EzZB8U82c   # Why 'Good' AI is Still Terrible
+# https://www.youtube.com/watch?v=mDQucCHy1Js   # I'm Refusing AI Sponsorships and Here's Why
+# https://www.youtube.com/watch?v=ENzXQ_rNG0g   # Comedy short film
+# https://www.youtube.com/watch?v=wn3jN6edtHc   # Trailer for the comedy short film
+# https://www.youtube.com/watch?v=K8neEV21_ao   # Confronting The Editor Who Stole My Job From Logan Paul
+# https://www.youtube.com/watch?v=RnLvbPJbf58   # Pro Editor Tries Premiere For The First Time
+# https://www.youtube.com/watch?v=ZCbsXX1WFF8   # I Watched Every Oscar 2021 Movie So You Don't Have To
+# https://www.youtube.com/watch?v=lELbhjtLPRw   # Tenet Deserved Better

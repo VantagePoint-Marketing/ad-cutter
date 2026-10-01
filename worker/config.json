@@ -22,5 +22,15 @@
   "ad_min_seconds": 20,
   "ad_max_seconds": 75,
   "cta_seconds": 3,
-  "render_quality": "delivery"
+  "render_quality": "delivery",
+
+  "library": {
+    "watch_models": ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"],
+    "window_seconds": 600,
+    "min_last_window_seconds": 120,
+    "daily_video_hours": 7,
+    "max_video_minutes": 90,
+    "youtube_daily_units": 2000,
+    "resync_hours": 6
+  }
 }

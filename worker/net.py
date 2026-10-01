@@ -16,6 +16,7 @@ ALLOWED_HOSTS = {
     "www.googleapis.com",         # YouTube Data API (metadata only)
     "youtube.googleapis.com",
     "public.api.foreplay.co",     # Foreplay API
+    "generativelanguage.googleapis.com",   # Gemini free tier: watching public YouTube videos by link (gemini_free.py)
 }
 # Never, even if someone adds them to the allowlist: YouTube pages and video streams.
 BLOCKED_SUFFIXES = ("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com")

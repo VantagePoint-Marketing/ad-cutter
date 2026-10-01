@@ -43,6 +43,11 @@ export default defineRailway((ctx) => {
       SECRET_ACCESS_KEY: ref(media, "SECRET_ACCESS_KEY"),
       MONTHLY_BUDGET_USD: "90", // our own ledger cap; the OpenRouter key itself is limited to $100/month
       OPENROUTER_VIDEO_AGENT_KEY: preserve(), // set by hand in Railway, never in a file
+      // The reference library (worker/library.py): studied while no editing job waits. Off in production until
+      // it gets its own keys and its own decision.
+      LIBRARY_ENABLED: production ? "0" : "1",
+      GEMINI_API_KEY: preserve(), // Google AI Studio key on a project without billing (free tier); set by hand
+      YOUTUBE_API_KEY: preserve(), // YouTube Data API key (metadata only); set by hand
     },
   });
 

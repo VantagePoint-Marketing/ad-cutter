@@ -32,6 +32,7 @@ class FakeDB:
 
     def __init__(self):
         self.jobs, self.events = {}, []
+        self.library_sources, self.library_notes, self.library_missing = [], [], False
 
     def connect(self):
         return self
@@ -71,6 +72,20 @@ class FakeDB:
                 job["status"] = "queued"
                 return Cursor(["id"], [(job["id"],)])      # "returning id": one row when it flipped
             return Cursor(["id"], [])
+        if self.library_missing and ("ref_sources" in sql or "ref_notes" in sql):
+            import psycopg
+            raise psycopg.errors.UndefinedTable('relation "ref_sources" does not exist')
+        if "from ref_sources" in sql:
+            cols = self._cols(sql)
+            return Cursor(cols, [tuple(s[c] for c in cols) for s in self.library_sources])
+        if "from ref_notes" in sql:
+            with_lessons = params[0]
+            return Cursor(["source_id", "window_start", "summary", "lesson_count", "lessons"],
+                          [(n["source_id"], n["window_start"], n["note"].get("summary"),
+                            len(n["note"].get("lessons", [])), n["note"].get("lessons") if with_lessons else None)
+                           for n in self.library_notes])
+        if "from api_quota" in sql:
+            return Cursor(["used"], [(1800,)])
         if sql.startswith("select count(*)"):
             if "interval '1 day'" in sql:          # the daily cap: every job the page made counts
                 return Cursor(["count"], [(len(self.jobs),)])
@@ -256,6 +271,37 @@ def test_status_shows_progress_then_the_ads_with_signed_links(client):
     assert ad["download_url"].endswith("?download&name=Ad - Lag (2026-10-01).mp4")
     assert r["ads"][1]["preview_url"] is None and r["ads"][1]["error"] == "render failed"
     assert r["claims_to_review"][0]["claim"] == "30% more"
+
+
+def test_library_lists_videos_with_their_lessons_in_order(client):
+    client.db.library_sources = [
+        {"id": 1, "tier": 1, "external_id": "IROKEjmIIlM", "title": "When Editing Ruins Your Video",
+         "channel": "HillierSmith", "seconds": 2184, "status": "working", "reason": None},
+        {"id": 2, "tier": 1, "external_id": "QR8LxximqWI", "title": "5 MORE Editing Mistakes", "channel": "HillierSmith",
+         "seconds": 348, "status": "done", "reason": None},
+        {"id": 3, "tier": 1, "external_id": "zzzzzzzzzzz", "title": "", "channel": "", "seconds": None,
+         "status": "failed", "reason": "not on YouTube"}]
+    client.db.library_notes = [
+        {"source_id": 1, "window_start": 600, "note": {"summary": "part two", "lessons": [
+            {"at_s": 700, "topic": "Story", "principle": "Later lesson.", "lever": "hook", "how_we_apply": "x"}]}},
+        {"source_id": 1, "window_start": 0, "note": {"summary": "part one", "lessons": [
+            {"at_s": 41, "topic": "Pacing", "principle": "Earlier <b>lesson</b>.", "lever": "pause_trim"}]}}]
+    short = client.get(f"/{TOKEN}/api/library").json()
+    assert (short["studied"], short["total"], short["lessons"], short["hours_today"]) == (1, 3, 2, 0.5)
+    assert "lessons" not in short["videos"][0] and short["videos"][0]["lesson_count"] == 2
+    full = client.get(f"/{TOKEN}/api/library?lessons=true").json()
+    first = full["videos"][0]
+    assert [x["at_s"] for x in first["lessons"]] == [41, 700] and first["minutes"] == 36.4
+    assert first["url"] == "https://www.youtube.com/watch?v=IROKEjmIIlM"
+    assert full["videos"][2]["reason"] == "not on YouTube" and full["videos"][2]["lessons"] == []
+    assert client.get("/wrong-token-1234567/api/library").status_code == 404
+
+
+def test_library_before_its_tables_exist_is_empty_not_an_error(client):
+    client.db.library_missing = True
+    res = client.get(f"/{TOKEN}/api/library")
+    assert res.status_code == 200 and res.json() == {"videos": [], "studied": 0, "total": 0, "lessons": 0,
+                                                     "hours_today": 0}
 
 
 def test_recent_list_skips_jobs_still_uploading(client):

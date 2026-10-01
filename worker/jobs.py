@@ -9,6 +9,7 @@ Environment (Railway variables):
     BUCKET, ACCESS_KEY_ID, SECRET_ACCESS_KEY, ENDPOINT, REGION     the media bucket
     OPENROUTER_VIDEO_AGENT_KEY         staff editing key ($100/month limit on OpenRouter)
     MONTHLY_BUDGET_USD                 our own ledger cap for that key (default 100)
+    LIBRARY_ENABLED, GEMINI_API_KEY, YOUTUBE_API_KEY    the reference library (library.py), studied while idle
     WORK_ROOT                          scratch space for jobs (default /tmp/va-jobs)
     HYPERFRAMES_DIR                    where the pinned HyperFrames install lives (default /app/hyperframes)
 """
@@ -28,6 +29,7 @@ import time
 from pathlib import Path
 
 import ad_cutter as ac
+import library
 import llm
 from budget import BudgetExceeded
 from pg_budget import PostgresLedger, release_stale
@@ -248,7 +250,8 @@ def serve(once: bool = False) -> None:
         raise Stop()
 
     signal.signal(signal.SIGTERM, on_term)
-    log.info("worker %s ready", WORKER_ID)
+    lib = library.Runner(connect, cfg, worker_id=WORKER_ID) if library.enabled() else None
+    log.info("worker %s ready; library %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})")
     last_sweep = last_release = 0.0
     while not stopping.is_set():
         try:
@@ -270,6 +273,8 @@ def serve(once: bool = False) -> None:
                     return
             elif once:
                 return
+            elif lib and lib.ready():                 # no editing job waiting: study one part of one video
+                log.info("library: %s", lib.step())
             else:
                 time.sleep(POLL_SECONDS)
         except Stop:
@@ -306,7 +311,24 @@ def selftest() -> int:
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)
     check("render", smoke_render)
+    check("library", library_check)
     return 0 if ok else 1
+
+
+def library_check() -> str:
+    """Whether the library is on, and if so that both keys work: one free Gemini call and 1 YouTube quota unit."""
+    off = library.why_off()
+    if off:
+        return f"off ({off})"
+    import gemini_free
+    import youtube
+    gemini = gemini_free.GeminiFree().key_ok()
+    seen = youtube.videos(["jNQXAC9IVRw"])
+    if "jNQXAC9IVRw" not in seen:
+        raise RuntimeError("the YouTube key answered but returned no video")
+    with connect() as conn:
+        counts = dict(conn.execute("select status, count(*) from ref_sources group by status").fetchall())
+    return f"on; Gemini {gemini}; YouTube key works; videos by status: {counts or 'none yet'}"
 
 
 def browser_is_offline() -> str:

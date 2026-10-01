@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
 <title>Video Agent</title>
 <style>
   :root { --ink: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --bg: #f5f5f7; --card: #fff; --blue: #0071e3;
@@ -64,6 +65,11 @@
   .recent .brief { color: var(--muted); }
   h2 { font-size: 20px; margin: 32px 0 10px; letter-spacing: -0.01em; }
   details summary { cursor: pointer; color: var(--muted); }
+  details.lib { border-top: 1px solid var(--line); padding: 12px 0; }
+  details.lib:first-child { border-top: 0; }
+  details.lib summary { color: var(--ink); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  ol.lessons { margin: 8px 0 0; padding-left: 20px; font-size: 15px; }
+  ol.lessons li { margin: 8px 0; }
   @media (max-width: 560px) { .ad { grid-template-columns: 1fr; } .ad video { width: 100%; max-width: 260px; } }
 </style>
 </head>
@@ -103,6 +109,13 @@
 
   <h2>Recent</h2>
   <div class="card"><ul class="recent" id="recent"><li class="hint">Nothing yet.</li></ul></div>
+
+  <h2>Library</h2>
+  <div class="card">
+    <p class="hint" id="libLine" style="margin:0">Loading what the agent has studied.</p>
+    <button class="btn ghost" id="libShow" hidden style="margin-top:8px;padding-left:0">Show the lessons</button>
+    <div id="lib"></div>
+  </div>
 </main>
 
 <script>
@@ -144,7 +157,7 @@
   }
 
   const fmtSize = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : Math.round(b / 1024 ** 2) + " MB";
-  const fmtTime = (s) => s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const fmtTime = (s) => { if (s == null) return ""; const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   function renderFiles() {
@@ -314,8 +327,33 @@
     } catch (err) { /* the list is a convenience; keep the page usable */ }
   }
 
+  // ---------------------------------------------------------------- the library
+  const LIB_WORD = { done: "studied", working: "watching", new: "waiting", failed: "failed", skipped: "skipped" };
+
+  async function loadLibrary(full) {
+    try {
+      const d = await api("GET", `${BASE}/api/library${full ? "?lessons=true" : ""}`);
+      if (!d.total) { $("libLine").textContent = "Nothing studied yet. The agent studies its video library while no ads are being made."; return; }
+      $("libLine").textContent = `${d.studied} of ${d.total} videos studied · ${d.lessons} lessons learned · ${d.hours_today} h of video watched today`;
+      $("libShow").hidden = full;
+      if (!full) return;
+      $("lib").innerHTML = d.videos.map((v) =>
+        `<details class="lib"><summary><span class="chip ${v.status === "done" ? "ok" : v.status === "failed" ? "bad" : ""}">${LIB_WORD[v.status] || esc(v.status)}</span>` +
+        `<strong>${esc(v.title)}</strong><span class="hint">${esc(v.minutes)} min · ${esc(v.lesson_count)} lessons</span></summary>` +
+        (v.reason ? `<p class="err">${esc(v.reason)}</p>` : "") +
+        (v.summary ? `<p class="hint">${esc(v.summary)}</p>` : "") +
+        `<p><a class="dl" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></p>` +
+        ((v.lessons || []).length ? `<ol class="lessons">${v.lessons.map((l) =>
+          `<li><span class="hint">${fmtTime(l.at_s)} · ${esc(l.topic)}</span> ${esc(l.principle)} <span class="chip">${esc(l.lever)}</span>` +
+          (l.how_we_apply ? `<div class="hint">${esc(l.how_we_apply)}</div>` : "") + `</li>`).join("")}</ol>` : "") +
+        `</details>`).join("");
+    } catch (err) { $("libLine").textContent = "The library could not be loaded right now."; }
+  }
+  $("libShow").onclick = () => loadLibrary(true);
+
   window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id && id !== watching) watch(id); });
   loadRecent();
+  loadLibrary(false);
   if (location.hash.length > 1) watch(location.hash.slice(1));
 })();
 </script>

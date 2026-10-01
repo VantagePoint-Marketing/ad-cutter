@@ -21,6 +21,10 @@ How it works:
 4. **Checking:** each finished ad is transcribed again and compared with its captions.
 
 - The pipeline lives in `worker/` (the processing service on Railway and the local command line are the same code).
+- The reference library lives in `worker/library.py`: while no ads are being made, Gemini studies the videos in
+  `worker/library/foundation.txt` (the craft of editing) by their YouTube links on Google's free tier and keeps
+  checked notes. The page's Library section shows what it has learned. Next: a playbook built from those notes,
+  a self-check after rendering, and Good / Not right feedback on each ad.
 - The page lives in `web/` (FastAPI; one shared link, no accounts). `web/static/index.html` is the whole front end.
 - Settings live in `worker/config.json`: brand, CTA, model, default ad count (`ad_count`) and the most ads Gemini
   may plan (`ad_count_max`).
