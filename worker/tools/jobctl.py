@@ -6,6 +6,7 @@ bucket variables are set, for example `railway ssh -- sh -c 'cd /app/worker && p
     python tools/jobctl.py status <job_id>
     python tools/jobctl.py events <job_id>
     python tools/jobctl.py result <job_id>        the result without raw_plan
+    python tools/jobctl.py requeue <job_id>       run a failed job again, e.g. after a pipeline fix
     python tools/jobctl.py list [--limit 20]
     python tools/jobctl.py spend                  every month's ledger totals
 
@@ -82,6 +83,23 @@ def result(args) -> dict:
     return res
 
 
+def requeue(args) -> dict:
+    """Put a failed job back in the queue with a fresh attempt budget, as a new run from scratch: the source must
+    still be in the bucket, the old result is dropped, and Gemini plans again (about $0.10 to $0.25)."""
+    job_id = job_uuid(args.job_id)
+    with connect() as conn, conn.transaction():
+        done = rows(conn, "update jobs set status = 'queued', attempts = 0, max_attempts = default, stage = null, "
+                          "stage_detail = null, locked_by = null, heartbeat_at = null, started_at = null, "
+                          "finished_at = null, error = null, result = null "
+                          "where id = %s and status = 'failed' returning id", (job_id,))
+        if not done:
+            found = rows(conn, "select status from jobs where id = %s", (job_id,))
+            return {"error": f"the job is {found[0]['status']}; only failed jobs can be requeued" if found
+                    else "no such job"}
+        conn.execute("insert into job_events (job_id, message) values (%s, 'requeued by cli')", (job_id,))
+    return {"job_id": job_id, "status": "queued"}
+
+
 def list_jobs(args) -> list[dict]:
     with connect() as conn:
         return rows(conn, "select id, status, stage, attempts, source_name, cost_usd, created_at, finished_at from jobs "
@@ -104,7 +122,7 @@ def main(argv=None) -> int:
     p.add_argument("--source-name", required=True)
     p.add_argument("--note", default="")
     p.set_defaults(fn=enqueue)
-    for name, fn in (("status", status), ("events", events), ("result", result)):
+    for name, fn in (("status", status), ("events", events), ("result", result), ("requeue", requeue)):
         p = sub.add_parser(name)
         p.add_argument("job_id")
         p.set_defaults(fn=fn)

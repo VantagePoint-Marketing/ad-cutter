@@ -281,6 +281,7 @@ def selftest() -> int:
         return f"${remaining:.2f} left this month"
     check("openrouter key", key_check)
     check("ffmpeg", lambda: shutil.which("ffmpeg"))
+    check("ad body chain", body_chain_renders)
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)
     check("render", smoke_render)
@@ -306,6 +307,28 @@ def whisper_loads_offline() -> str:
     from faster_whisper import WhisperModel
     WhisperModel(worker_config()["whisper_model"], device="cpu", compute_type="int8")
     return f"{worker_config()['whisper_model']} loaded from the image (HF_HUB_OFFLINE={os.environ.get('HF_HUB_OFFLINE')})"
+
+
+def body_chain_renders() -> str:
+    """Cut two pieces out of a generated stereo clip and a mono one through the real ad body chain. Filter
+    negotiation differs between ffmpeg versions (5.1 rejected the chain once), and a PC test can't catch that."""
+    work = Path(worker_config()["work_dir"]) / "selftest-body"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    sizes = []
+    try:
+        for layout in ("stereo", "mono"):
+            src, dest = work / f"{layout}.mp4", work / f"{layout}-body.mp4"
+            ac.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=4",
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4",
+                    "-af", f"aformat=channel_layouts={layout}", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000", str(src)], timeout=120)
+            ac.render_body(src, [ac.Interval(0.5, 1.5, 0.0, 0), ac.Interval(2.0, 3.0, 1.0, 0)], body_len=2.0,
+                           cta=1.0, dest=dest)
+            sizes.append(f"{layout} {dest.stat().st_size // 1024} KB")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return ", ".join(sizes)
 
 
 def smoke_render() -> str:

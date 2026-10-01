@@ -458,7 +458,9 @@ def render_body(full: Path, ivs: list[Interval], body_len: float, cta: float, de
         labels.append(f"[v{i}][a{i}]")
     parts.append(f"{''.join(labels)}concat=n={len(ivs)}:v=1:a=1[vc][ac]")
     parts.append(f"[vc]tpad=stop_mode=clone:stop_duration={cta}[v]")
-    parts.append(f"[ac]highpass=f=80,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,"
+    # aformat pins the layout after aresample. With ffmpeg 5.1 (Debian bookworm, the worker image) the explicit
+    # aresample after loudnorm otherwise ends negotiation with no channel layout and every render fails.
+    parts.append(f"[ac]highpass=f=80,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo,"
                  f"apad=whole_dur={body_len + cta:.4f}[a]")
     run(["ffmpeg", "-v", "error", "-y", "-i", str(full), "-filter_complex", ";".join(parts),
          "-map", "[v]", "-map", "[a]", "-t", f"{body_len + cta:.4f}", "-c:v", "libx264", "-preset", "medium",
