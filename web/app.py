@@ -38,6 +38,7 @@ from storage import MAX_CLIPS, Bucket  # noqa: E402
 log = logging.getLogger("video-agent-web")
 TOKEN = os.environ.get("APP_LINK_TOKEN", "").strip()
 MAX_CLIP_BYTES = 4 * 1024 ** 3           # the worker refuses larger downloads
+MAX_JOB_BYTES = 10 * 1024 ** 3           # all clips together (10 minutes of 4K phone footage is about 4 GB)
 MAX_BRIEF = 2000                         # characters of the request that reach Gemini (worker: ad_cutter.MAX_BRIEF)
 LINK_SECONDS = 3600                      # how long signed preview/download links stay valid
 UPLOAD_LINK_SECONDS = 6 * 3600           # upload links last longer: several big clips on a home connection
@@ -99,9 +100,9 @@ def allow_uploads_from_this_page() -> str:
         return "no public domain yet; browser uploads will fail until the service has one"
     try:
         bucket().allow_browser_uploads(origins)
-    except Exception as err:          # noqa: BLE001 - the page still serves; /healthz shows the problem
+    except Exception as err:          # noqa: BLE001 - the page still serves; /healthz names the error type only
         log.exception("could not set the bucket's CORS rule")
-        return f"FAILED: {type(err).__name__}: {str(err)[:200]}"
+        return f"FAILED: {type(err).__name__} (see the service logs)"
     return f"allowed from {', '.join(origins)}"
 
 
@@ -155,6 +156,10 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
         if not 0 < clip.bytes <= MAX_CLIP_BYTES:
             raise HTTPException(400, f"{name} is {clip.bytes / 1024 ** 3:.1f} GB; each clip must be under 4 GB.")
         sources.append({"key": Bucket.clip_key(job_id, n), "name": name, "bytes": int(clip.bytes)})
+    total = sum(s["bytes"] for s in sources)
+    if total > MAX_JOB_BYTES:
+        raise HTTPException(400, f"The clips add up to {total / 1024 ** 3:.1f} GB; the limit is "
+                                 f"{MAX_JOB_BYTES // 1024 ** 3} GB per job.")
     label = sources[0]["name"] + (f" + {len(sources) - 1} more" if len(sources) > 1 else "")
     with connect() as conn:
         today = conn.execute("select count(*) from jobs where created_by = 'web' and created_at > now() - "
@@ -188,8 +193,11 @@ def start_job(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
                 what = "did not arrive" if size is None else f"arrived incomplete ({size:,} of {int(s['bytes']):,} bytes)"
                 raise HTTPException(409, f"Clip {n + 1} ({s['name']}) {what}. Please try again.")
         with connect() as conn:
-            conn.execute("update jobs set status = 'queued' where id = %s and status = 'uploading'", (jid,))
-            conn.execute("insert into job_events (job_id, message) values (%s, %s)", (jid, "all clips arrived; queued"))
+            flipped = conn.execute("update jobs set status = 'queued' where id = %s and status = 'uploading' "
+                                   "returning id", (jid,)).fetchone()
+            if flipped:               # two overlapping /start calls record the event once
+                conn.execute("insert into job_events (job_id, message) values (%s, %s)",
+                             (jid, "all clips arrived; queued"))
     return job_view(jid)
 
 
@@ -261,8 +269,9 @@ def main() -> int:
     if token_problem():
         log.error("%s (set it in Railway: web service, Variables)", token_problem())
     import uvicorn
+    # no access log: every request path carries the link token, and Railway keeps its own request logs anyway
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), proxy_headers=True,
-                forwarded_allow_ips="*", log_level="info")
+                forwarded_allow_ips="*", log_level="info", access_log=False)
     return 0
 
 

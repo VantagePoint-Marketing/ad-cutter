@@ -138,6 +138,25 @@ def test_a_job_may_only_read_its_own_uploads(monkeypatch, env):
     assert bucket.downloads == []
 
 
+def test_clips_that_add_up_to_too_much_fail_before_any_download(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    big = [{"key": f"uploads/{JOB}/clip-{n}", "name": f"{n}.MOV", "bytes": 3 * 1024 ** 3} for n in range(4)]
+    assert jobs.run_job(conn, bucket, job(sources=big), cfg) == "failed"
+    upd = next(p for s, p in log if s.startswith("update jobs set status"))
+    assert "10 GB per job" in upd[2] and upd[4] is True and bucket.downloads == []
+
+
+def test_a_rebuild_may_read_its_parents_clips(monkeypatch, env):
+    _, cfg, bucket, conn = env
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    parent = "99999999-2222-3333-4444-555555555555"
+    theirs = [{"key": f"uploads/{parent}/clip-0", "name": "P.MOV"}]
+    assert jobs.run_job(conn, bucket, job(kind="rebuild", parent_job=parent, sources=theirs), cfg) == "ready"
+    assert bucket.downloads == [f"uploads/{parent}/clip-0"]
+    assert jobs.run_job(conn, bucket, job(kind="edit", parent_job=parent, sources=theirs), cfg) == "failed"
+
+
 def test_an_oversized_clip_fails_without_retry(monkeypatch, env):
     log, cfg, bucket, conn = env
 

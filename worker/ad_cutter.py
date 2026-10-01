@@ -312,7 +312,15 @@ def call_gemini(cfg: dict, client: llm.OpenRouter, prompt: str, proxy: Path, dur
         raise AdCutterError(f"Gemini planning: {err}") from err
 
 
-def validate_plan(plan: dict, words: list[dict], cfg: dict) -> tuple[dict, list[str]]:
+def clip_of(t: float, clips: list[dict]) -> int:
+    """Which clip (1-based) a source time falls in; the last one for times past the end."""
+    for n, c in enumerate(clips, 1):
+        if t < float(c["start"]) + float(c["seconds"]):
+            return n
+    return len(clips)
+
+
+def validate_plan(plan: dict, words: list[dict], cfg: dict, clips: list[dict] | None = None) -> tuple[dict, list[str]]:
     """Check Gemini's plan against the transcript. Fixable problems are repaired and reported."""
     n, notes = len(words), []
     if not isinstance(plan, dict):
@@ -366,6 +374,11 @@ def validate_plan(plan: dict, words: list[dict], cfg: dict) -> tuple[dict, list[
             while s["from"] < s["to"] and words[s["from"]]["w"].lower() in FILLER_STARTS:
                 notes.append(f"Ad {k}: segment started on '{words[s['from']]['w']}'; moved to the next word.")
                 s["from"] += 1
+            if clips and len(clips) > 1:
+                a, b = clip_of(words[s["from"]]["s"], clips), clip_of(words[s["to"]]["e"] - 0.001, clips)
+                if a != b:
+                    notes.append(f"Ad {k}: a segment runs across the join between clip {a} and clip {b} "
+                                 "(expect a jump cut there).")
         ad["segments"] = segs
         for c in as_list(ad.get("callouts")):   # keep callouts that began on a skipped filler word
             if isinstance(c, dict) and is_idx(c.get("from")):
@@ -712,7 +725,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     cost = None
     if plan_file.exists() and not replan:
         raw_plan = json.loads(plan_file.read_text(encoding="utf-8"))
-        log.info("reusing saved Gemini plan (--replan for a new one)")
+        log.info("reusing the saved Gemini plan; a new or changed request needs --replan")
     else:
         progress("planning", "Gemini is watching the footage")
         log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
@@ -721,7 +734,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
         log.info("plan received (cost $%s)", cost)
-    plan, notes = validate_plan(json.loads(json.dumps(raw_plan)), words, cfg)
+    plan, notes = validate_plan(json.loads(json.dumps(raw_plan)), words, cfg, media["clips"])
     disp = display_words(words, plan)
 
     out_dir.mkdir(parents=True, exist_ok=True)     # re-runs share the day's folder; files are never overwritten

@@ -40,8 +40,14 @@ names with an apostrophe or ampersand ("Don't Trade Blind") passed `safe_name` b
 upload time, after all the renders, and the generic retry then paid for two more Gemini plans; `safe_name` now
 keeps only the characters result keys accept. Also added from that review: each input is capped at its own checked
 length (a lying header can't stretch a job past 10 minutes), a cap of 30 web jobs per rolling day (429), the prompt
-says the request never overrides the rules, and upload links last 6 hours. The code-reviewer's report is in the
-follow-up commit message if it arrived; otherwise it is still pending.
+says the request never overrides the rules, and upload links last 6 hours. The code-reviewer approved with no
+blockers and six should-fixes, all applied in the third commit: the page's `[hidden]` attribute lost to
+`.row {display:flex}` (the "Start another" button showed during uploads), two polling loops could run at once
+(hashchange plus a direct call; now a generation counter), a 10 GB total cap per job on the page and in the
+worker, a replan/rebuild may read its parent's clips, uvicorn's access log is off (every path carries the token)
+and `/healthz` names only an error's type, and `validate_plan` notes a segment that runs across a clip join.
+Also verified on staging after that: the page's exact SQL against the real Postgres (in a rolled-back
+transaction), and the browser's CORS preflight to the bucket (200, the page's origin, PUT).
 
 ## What the page does (web/)
 

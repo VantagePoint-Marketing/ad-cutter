@@ -69,7 +69,8 @@ class FakeDB:
             job = self.jobs.get(params[0])
             if job and job["status"] == "uploading":
                 job["status"] = "queued"
-            return Cursor([], [])
+                return Cursor(["id"], [(job["id"],)])      # "returning id": one row when it flipped
+            return Cursor(["id"], [])
         if sql.startswith("select count(*)"):
             if "interval '1 day'" in sql:          # the daily cap: every job the page made counts
                 return Cursor(["count"], [(len(self.jobs),)])
@@ -184,6 +185,7 @@ def test_create_job_cleans_names_and_refuses_bad_input(client):
         ({"brief": "", "clips": [{"name": "big.mov", "bytes": 5 * 1024 ** 3}]}, "under 4 GB"),
         ({"brief": "", "clips": [{"name": "empty.mov", "bytes": 0}]}, "under 4 GB"),
         ({"brief": "x" * 2001, "clips": [{"name": "a.mov", "bytes": 1}]}, "under 2,000 characters"),
+        ({"brief": "", "clips": [{"name": f"{i}.mov", "bytes": 3 * 1024 ** 3} for i in range(4)]}, "10 GB per job"),
     ]
     for body, message in bad:
         res = client.post(f"/{TOKEN}/api/jobs", json=body)
@@ -215,8 +217,10 @@ def test_start_checks_every_clip_arrived_in_full_then_queues(client):
     res = client.post(f"/{TOKEN}/api/jobs/{jid}/start")
     assert res.status_code == 200 and res.json()["status"] == "queued" and res.json()["ahead"] == 2
     assert client.db.jobs[jid]["status"] == "queued" and client.db.events[-1][1] == "all clips arrived; queued"
-    # starting again is harmless
+    # starting again is harmless and records nothing new
+    events_before = len(client.db.events)
     assert client.post(f"/{TOKEN}/api/jobs/{jid}/start").json()["status"] == "queued"
+    assert len(client.db.events) == events_before
     assert client.post(f"/{TOKEN}/api/jobs/00000000-0000-0000-0000-000000000000/start").status_code == 404
     assert client.post(f"/{TOKEN}/api/jobs/not-a-uuid/start").status_code == 422
 

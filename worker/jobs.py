@@ -38,6 +38,7 @@ HERE = Path(__file__).resolve().parent
 WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
 KEY_ENV, KEY_NAME = "OPENROUTER_VIDEO_AGENT_KEY", "video-agent"
 POLL_SECONDS, HEARTBEAT_SECONDS, STALE_SECONDS = 5, 30, 600
+MAX_JOB_BYTES = 10 * 1024 ** 3        # all of a job's clips together (the web page applies the same limit)
 
 CLAIM_SQL = """
 update jobs set status = 'working', locked_by = %(worker)s, heartbeat_at = now(), attempts = attempts + 1,
@@ -162,10 +163,16 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         db(set_stage, job_id, "downloading")
         # the clips, in the order the person gave them; older rows have only source_key
         clips = job.get("sources") or [{"key": job["source_key"], "name": job["source_name"]}]
+        declared = sum(int(clip.get("bytes") or 0) for clip in clips)
+        if declared > MAX_JOB_BYTES:
+            raise ac.AdCutterError(f"the clips add up to {declared / 1024 ** 3:.1f} GB; the limit is "
+                                   f"{MAX_JOB_BYTES // 1024 ** 3} GB per job")
+        # a job may only read its own uploads; a replan or rebuild may also read its parent's
+        owners = [job_id] + ([job["parent_job"]] if job["kind"] in ("replan", "rebuild") and job["parent_job"] else [])
         srcs, names = [], []
         for n, clip in enumerate(clips):
             key = str(clip.get("key", ""))
-            if not Bucket.owns(job_id, key):            # a job may only ever read its own uploads
+            if not any(Bucket.owns(owner, key) for owner in owners):
                 raise ac.AdCutterError(f"clip {n + 1} is not one of this job's uploads ({key})")
             try:
                 srcs.append(bucket.download(key, work / "upload" / f"clip-{n}.bin"))

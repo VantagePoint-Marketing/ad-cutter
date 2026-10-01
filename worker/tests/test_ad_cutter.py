@@ -300,6 +300,15 @@ def test_validate_plan_caps_the_number_of_ads_and_keeps_the_response():
     assert out["response_to_request"] == ""
 
 
+def test_validate_plan_notes_a_segment_that_runs_across_a_clip_join():
+    ws = words_from(" ".join(["w"] * 60))                  # 30 s of words
+    clips = [{"name": "A", "start": 0.0, "seconds": 10.0}, {"name": "B", "start": 10.0, "seconds": 20.0}]
+    _, notes = ac.validate_plan(make_plan(segments=[{"from": 10, "to": 50}]), ws, CFG, clips)
+    assert any("across the join between clip 1 and clip 2" in n for n in notes)
+    _, notes = ac.validate_plan(make_plan(segments=[{"from": 22, "to": 50}]), ws, CFG, clips)
+    assert notes == []
+
+
 def test_safe_name_only_makes_names_the_bucket_accepts():
     from storage import Bucket
     for name in ("Don't Trade Blind", "Proof & Numbers", "Why 90% of Traders Lose", "Lag — the ’real’ cost",

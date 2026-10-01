@@ -9,6 +9,7 @@
   :root { --ink: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --bg: #f5f5f7; --card: #fff; --blue: #0071e3;
           --red: #c0392b; --amber: #b7791f; --amber-bg: #fff8e6; --green: #1a7f37; }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* the hidden attribute must win over .row's display:flex */
   body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
          font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   main { max-width: 760px; margin: 0 auto; padding: 40px 16px 80px; }
@@ -110,7 +111,7 @@
   const $ = (id) => document.getElementById(id);
   const MAX_CLIPS = 10, MAX_BYTES = 4 * 1024 ** 3, MAX_MINUTES = 10;
   let files = [];            // {file, seconds}
-  let pollTimer = null;
+  let pollTimer = null, gen = 0, watching = null;   // one polling loop at a time; older loops exit on their next tick
 
   // ---------------------------------------------------------------- picking clips
   const drop = $("drop"), input = $("file");
@@ -178,8 +179,8 @@
       }
       $("pFiles").innerHTML = "";
       await api("POST", `${BASE}/api/jobs/${job.job_id}/start`);
-      location.hash = job.job_id;
       watch(job.job_id);
+      location.hash = job.job_id;     // hashchange sees it is already being watched and does nothing
     } catch (err) {
       if ($("form").hidden) { $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false; }
       else { $("formErr").textContent = err.message; $("go").disabled = false; }
@@ -220,14 +221,19 @@
   }
 
   function watch(jobId) {
+    const my = ++gen;
+    watching = jobId;
     clearTimeout(pollTimer);
     const tick = async () => {
+      if (my !== gen) return;
       try {
         const j = await api("GET", `${BASE}/api/jobs/${jobId}`);
+        if (my !== gen) return;
         render(j);
         if (j.status !== "ready" && j.status !== "failed") pollTimer = setTimeout(tick, 4000);
         else loadRecent();
       } catch (err) {
+        if (my !== gen) return;
         $("pErr").textContent = err.message; $("spinner").hidden = true; $("pActs").hidden = false;
       }
     };
@@ -280,7 +286,7 @@
   }
 
   function reset() {
-    clearTimeout(pollTimer);
+    clearTimeout(pollTimer); gen++; watching = null;
     files = []; renderFiles(); $("brief").value = "";
     $("result").hidden = true; $("progress").hidden = true; $("form").hidden = false; $("go").disabled = true;
     history.replaceState(null, "", location.pathname);
@@ -304,11 +310,11 @@
       $("recent").innerHTML = data.jobs.map((j) =>
         `<li data-id="${esc(j.job_id)}"><span class="when">${when(j.created_at)}</span><span class="what"><strong>${esc(j.label)}</strong>` +
         (j.brief ? ` <span class="brief">— ${esc(j.brief)}</span>` : "") + `</span><span class="chip ${j.status === "ready" ? "ok" : j.status === "failed" ? "bad" : ""}">${STATUS_WORD[j.status] || esc(j.status)}</span></li>`).join("");
-      $("recent").querySelectorAll("li").forEach((li) => li.onclick = () => { location.hash = li.dataset.id; watch(li.dataset.id); window.scrollTo({ top: 0, behavior: "smooth" }); });
+      $("recent").querySelectorAll("li").forEach((li) => li.onclick = () => { watch(li.dataset.id); location.hash = li.dataset.id; window.scrollTo({ top: 0, behavior: "smooth" }); });
     } catch (err) { /* the list is a convenience; keep the page usable */ }
   }
 
-  window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id) watch(id); });
+  window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id && id !== watching) watch(id); });
   loadRecent();
   if (location.hash.length > 1) watch(location.hash.slice(1));
 })();
