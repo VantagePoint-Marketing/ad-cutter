@@ -95,10 +95,13 @@ MONEY_WORDS = {"profit", "profits", "profitable", "returns", "earn", "earnings",
                "dollar", "dollars", "gains", "winning", "winners", "payout", "riches"}
 
 
-def unsafe_text(ad: dict, spoken: set[str]) -> str | None:
+def unsafe_text(ad: dict, spoken: set[str], original_primary: str | None = None) -> str | None:
     """Why a reworked ad's text must be refused, or None. Covers the headline, the callouts and the Meta copy: a promise-style phrase is
-    never allowed; a number (digits or spelled out) or a money word is allowed only if the speaker said it."""
-    texts = [str(ad.get("headline", ""))] + [str(c.get("text", "")) for c in ad.get("callouts", []) if isinstance(c, dict)] + [str(ad.get("primary_text", ""))]
+    never allowed; a number (digits or spelled out) or a money word is allowed only if the speaker said it. The Meta copy is checked only
+    when it differs from `original_primary` (copy the loop did not change was never at risk from the loop)."""
+    texts = [str(ad.get("headline", ""))] + [str(c.get("text", "")) for c in ad.get("callouts", []) if isinstance(c, dict)]
+    if original_primary is None or str(ad.get("primary_text", "")) != str(original_primary):
+        texts.append(str(ad.get("primary_text", "")))
     for t in texts:
         if RISKY.search(t):
             return f"it used promise-style wording ({t[:40]!r})"
@@ -281,6 +284,7 @@ class Repairer:
         self.pending_est = 0.0
 
     def __call__(self, entry: dict, review: dict, scope: str, areas: list[str]) -> tuple[dict | None, float, str]:
+        self.pending_est = 0.0
         try:
             return self._cosmetic(entry, review, areas) if scope == "cosmetic" else self._structural(entry, review, areas)
         except (llm.LLMError, BudgetExceeded) as err:
@@ -334,7 +338,7 @@ class Repairer:
             return None, cost, f"the reworked ad failed its checks ({str(err)[:80]})"
         fixed = plan["ads"][0]
         spoken = design_kit.spoken_tokens([self.words[i]["w"] for s in fixed["segments"] for i in range(s["from"], s["to"] + 1)])
-        why = unsafe_text(fixed, spoken)
+        why = unsafe_text(fixed, spoken, ad.get("primary_text", ""))
         if why:
             return None, cost, f"refused: {why}"
         if fixed["segments"] == ad["segments"] and fixed["headline"] == ad["headline"] and fixed["callouts"] == ad["callouts"]:

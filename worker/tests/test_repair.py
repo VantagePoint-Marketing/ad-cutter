@@ -350,3 +350,11 @@ def test_an_unexpected_error_in_the_loop_keeps_the_built_ads_and_the_money_spent
     cost, notes = ac.repair_loop(cfg, None, {"ads": []}, [{"k": 1, "file": "x.mp4"}], WORDS, [], None, media, Path("."), Path("."), "", "",
                                  lambda *a, **k: None, 0.0, spent=0.0)
     assert cost == 0.37 and "stopped early (KeyError)" in notes[0]
+
+
+def test_unchanged_meta_copy_is_not_held_against_a_rewrite_but_changed_copy_is_checked():
+    spoken = dk.spoken_tokens(["we", "capture", "three", "days"])
+    ad = {"headline": "Capture three days", "callouts": [], "primary_text": "Free webinar Oct 5. Earn your spot, money back."}
+    assert repair.unsafe_text(ad, spoken, ad["primary_text"]) is None                       # the same old copy: not the loop's doing
+    assert repair.unsafe_text(ad, spoken)                                                    # checked when nobody says it is the original
+    assert repair.unsafe_text({**ad, "primary_text": "Earn a lot"}, spoken, "Free webinar Oct 5. Earn your spot, money back.")
