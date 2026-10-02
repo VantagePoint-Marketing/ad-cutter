@@ -30,6 +30,7 @@ from pathlib import Path
 
 import ad_cutter as ac
 import feedback
+import hub_import
 import library
 import llm
 import models
@@ -292,6 +293,8 @@ def serve(once: bool = False) -> None:
 
     signal.signal(signal.SIGTERM, on_term)
     lib = library.Runner(connect, cfg, worker_id=WORKER_ID) if library.enabled() else None
+    # the knowledge hub fills and links itself a little at a time while no job waits (no outside calls, no spend); HUB_ENABLED=0 turns it off
+    hub_m = hub_import.Maintainer(connect) if os.environ.get("HUB_ENABLED", "1").strip() != "0" else None
     log.info("worker %s ready; library %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})")
     last_sweep = last_release = 0.0
     while not stopping.is_set():
@@ -314,7 +317,9 @@ def serve(once: bool = False) -> None:
                     return
             elif once:
                 return
-            elif lib and lib.ready():                 # no editing job waiting: study one part of one video
+            elif hub_m and hub_m.ready():             # no editing job waiting: keep the hub filled and linked
+                log.info("hub: %s", hub_m.step())
+            elif lib and lib.ready():                 # ... or study one part of one video
                 log.info("library: %s", lib.step())
             else:
                 time.sleep(POLL_SECONDS)
