@@ -1,0 +1,83 @@
+{
+  "name": "story_deeper",
+  "source": "https://www.youtube.com/watch?v=mPhhBgTIG2Y",
+  "summary": "An analytical video essay blending talking head commentary with dynamic graphics, motion design, and side-by-side editing breakdowns. The style relies on clean kinetic typography, graphical storytelling curves, and deliberate perspective shifts to explain narrative structure.",
+  "cadence": {
+    "average_shot_seconds": 2.5,
+    "cut_on_beat": true,
+    "b_roll_ratio": 0.65,
+    "zoom_punch": "frequent",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "clean_shadow"
+    ],
+    "case": [
+      "sentence",
+      "upper"
+    ],
+    "position": [
+      "low"
+    ],
+    "notes": "Captions are selectively used for emphasis, humor, or disclaimers rather than continuous transcription."
+  },
+  "headline": {
+    "styles": [
+      "tag",
+      "big_stack"
+    ],
+    "notes": "Massive, bold sans-serif text centered or placed across the screen for major thesis terms and graph titles."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "marker_box",
+      "scribble"
+    ],
+    "motions": [
+      "pop",
+      "slide",
+      "wipe"
+    ],
+    "notes": "Labels, arrows, and framed comparison boxes illustrate narrative beats and timeline steps."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "whip_pan"
+    ],
+    "notes": "Fast hard cuts supported by audio swooshes, frequent punch-ins on punchlines, and split-screen wipes."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "Direct educational pitch integrating sponsorship seamlessly into storytelling advice."
+  },
+  "rules": [
+    "Cut every 1.5 to 3 seconds to keep high educational momentum.",
+    "Use scale punch-ins on the speaker during comedic beats or thesis statements.",
+    "Support conceptual explanations with animated charts, timelines, or curve graphs.",
+    "Show side-by-side or before-and-after edits with clear version tags.",
+    "Pair visual titles with punchy sound effects like thuds or whooshes.",
+    "Punch in dynamically on the speaker on dramatic reveals or comedic beats",
+    "Anchor theoretical concepts to an evolving full-screen 2D animated diagram",
+    "Use side-by-side split screens with tagged headers to compare edit iterations",
+    "Isolate punchy emotional reactions with intentional dead-air pauses and text callouts",
+    "Support visual claims with relevant archival or stock footage overlays",
+    "Incorporate tactile computer UI b-roll to break up continuous monologue",
+    "Animate line graphs synchronously with vocal narrative milestones"
+  ],
+  "avoid": [
+    "Continuous word-by-word karaoke captions.",
+    "Static wide talking-head shots lasting over 4 seconds.",
+    "Unmotivated slow transitions like dissolves or fades to black.",
+    "Cluttered frames without a dominant focal point.",
+    "Never use continuous word-by-word karaoke captions over the entire video",
+    "Avoid leaving talking-head footage static for more than 4 seconds without a cut or punch",
+    "Avoid fancy 3D transitions like page turns or generic dissolves",
+    "Do not display unlabeled multi-cam comparisons"
+  ]
+}

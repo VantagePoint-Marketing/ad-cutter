@@ -13,14 +13,21 @@ with a `Review Notes.md`.
 How it works:
 1. **Preparing:** ffmpeg joins the clips, in the order given, into one 1080x1920 working copy (10 minutes of
    footage per job at most). Whisper transcribes it with word timings.
-2. **Planning (Gemini Pro, via OpenRouter):** Gemini watches a small proxy of the footage, reads the transcript and
+2. **Planning (Gemini 3.8 Flash, via OpenRouter, strict JSON schema):** Gemini watches a small proxy of the footage, reads the transcript and
    the request, and plans the ads: segments, headline, callouts, caption fixes and claims to review. It picks words
    by index, so it can't invent timestamps, and it says how it read the request.
-3. **Cutting and rendering:** every cut edge is snapped to the gap between words, pauses are trimmed, and audio is
-   levelled to -14 LUFS. HyperFrames renders the captions, headline, callouts and CTA.
+3. **Cutting and rendering:** every cut edge is snapped to the gap between words, pauses are trimmed (how hard
+   depends on the ad's pace), and audio is levelled to -14 LUFS. HyperFrames renders the captions, headline,
+   callouts, punch-in zooms and end screen. **No two ads share a fixed template:** for each ad Gemini designs the
+   whole look (pace, caption style and size and position, headline style, callout style and sides, motion,
+   colours, and an end screen with its own call-to-action text) from a menu in `worker/design.py`. The model only
+   picks names and short text; the code renders them, so no model-written markup reaches the render browser.
 4. **Checking:** each finished ad is transcribed again and compared with its captions.
 
 - The pipeline lives in `worker/` (the processing service on Railway and the local command line are the same code).
+- The agent's **brain** is every `.md` / `.json` file in `worker/brain/` (editing craft notes from Robert's Drive,
+  plus a short-ads playbook). They go into the planning prompt as guidance; edit or add files there to change
+  what it knows, no code change needed. `03_short_ads_playbook.md` is a draft awaiting Robert's review.
 - The reference library lives in `worker/library.py`: while no ads are being made, Gemini studies the videos in
   `worker/library/foundation.txt` (the craft of editing) by their YouTube links on Google's free tier and keeps
   checked notes. The page's Library section shows what it has learned. Next: a playbook built from those notes,
@@ -29,6 +36,14 @@ How it works:
 - Settings live in `worker/config.json`: brand, CTA, model, default ad count (`ad_count`) and the most ads Gemini
   may plan (`ad_count_max`).
 - Fonts and GSAP are stored in `worker/template/vendor/` (see `SOURCES.md` there), so renders need no internet.
+- **Two model tiers** (`models` in `worker/config.json`): reference videos are analysed once into a *style profile*
+  (`python worker/tools/analyze_reference.py --list library/references.txt`; `--estimate` shows the plan and spends
+  nothing). **Free first:** the free Gemini keys (`GEMINI_API_KEYS`, comma separated) are rotated on the best free Flash
+  model and step down `reference.free_models` only when a model is out for the day on every key; **paid last:** only when
+  every free option is used up does it use Gemini Pro on OpenRouter, capped by `--max-paid`
+  (`reference.paid_allowance_usd`). Free-tier content can be used by Google, so only public YouTube videos go that way.
+  Profiles live in `worker/brain/profiles/` and steer every plan. Gemini Flash does the per-job work on raw footage and
+  the post-render self-check. Beat and silence detection are done by code, never by the model.
 - Useful local options: `--replan` (ask Gemini again, about $0.10), `--only 2` (rebuild one ad), `--no-render`.
 - Tests: `python -m pytest -q` in `worker/` and in `web/`.
 - Cloud setup (Railway worker + web, private Postgres, media bucket): `.railway/README.md` for the infrastructure

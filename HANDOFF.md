@@ -3,6 +3,69 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## Per-ad design and the brain (2026-10-02, branch `feat/dynamic-ad-design`, built and tested locally; NOT pushed or deployed)
+
+Robert's feedback on the first real ad: functional but "too robotic"; every ad had the same CTA screen, motion graphics,
+captions and callouts. He wants each video custom: editing style, callouts, motion graphics, call to action, end screen,
+caption words and caption style. He also pointed at Gemini's editing notes in his Drive (Agent OS / The Art of Video
+Editing) to be stored in the agent's brain.
+
+- `worker/design.py`: the menu (5 caption styles, 6 headline styles, 5 callout styles, 5 motions, 5 end-screen layouts,
+  3 paces, palettes, punch-in zooms) and a validator (`sanitize`) that never raises: unknown names fall back to a default
+  and are reported in the notes; palette values must be plain `#RRGGBB` (they land in a `<style>` block); text and outline
+  colours must contrast. The planner picks names and short text only; no model-written HTML/JS reaches the renderer.
+- `worker/prompts/plan_ads.md` now asks for a `design` per ad, plus a `side` per callout, and the end-screen text is
+  written per video (the brand CTA in `config.json` is only a fallback / hint when the footage is about the product).
+  It also gets the last 8 looks (`design_history.jsonl` in the work dir's parent, local runs only; cloud jobs start with
+  an empty history because the work dir is per job) so it avoids repeating them.
+- `worker/brain/` + `worker/brain.py`: chapters 1-5 of Gemini's "Art of Video Editing" note, the style-profile JSON, and
+  `03_short_ads_playbook.md` (Claude's draft of how the documentary craft maps to 15-60 s ads; **Robert has not reviewed
+  it**, and the plan said he reads the playbook before it goes live). The source notes are long-form documentary
+  craft (60 s intros, dead space, letterboxing); only transferable ideas were kept.
+- `template/composition.html` is now structure only; `compose()` builds CSS/markup/GSAP from the design.
+- Checked visually on the real clip with four different looks (impact captions + ribbon + sticky note; calm gold
+  underline + scribble; green bar captions + banner + split-bar end screen; violet pill captions + bottom-sheet end
+  screen). **Not yet checked:** a real HyperFrames render of these looks (the Mac's data disk was 100% full), the
+  punch-in zoom on the `video` element inside HyperFrames, `clip-path` wipes and `color-mix()` under HyperFrames' Chrome,
+  and what Gemini actually chooses with the new prompt (one `--replan` costs about 3-5 cents).
+- Not done: more fonts (only Montserrat and Permanent Marker are vendored, so typography varies in weight, case and size
+  only); persisting recent looks for cloud jobs; the review prompt does not yet score "looks templated".
+- Tests: worker 445 passed (the 5 Postgres integration tests need a database and were not run).
+
+### Two-tier model layout (2026-10-02, same branch)
+
+Robert asked for the layout Gemini recommended: **Pro with extended thinking analyses references and writes a style profile;
+Flash does the high-volume raw-footage work.** `config.json` now has `models` (reference = `google/gemini-3.1-pro-preview`,
+high reasoning; footage = `google/gemini-3.8-flash`, medium; review = `google/gemini-3.8-flash`, low) instead of `plan_model`
+(a config that still has `plan_model` keeps working for the footage and review roles). `llm.model_for(cfg, role)` resolves
+them; Flash is priced in `llm.PRICES` (OpenRouter, 2026-10-02: $0.75 / $3.75 per M tokens; Pro $2 / $12).
+
+- Reference tier: `styleprofile.py` + `prompts/analyze_reference.md` + `tools/analyze_reference.py`. A public YouTube link goes
+  over the OpenRouter `youtube` route (Google AI Studio, NOT zero-retention, public videos only); a local file goes
+  zero-retention. Replies are validated into the renderer's vocabulary and saved to `worker/brain/profiles/*.json`, which
+  go into every planning prompt. Run `--estimate` first (15 min of video is about $1.31 worst case). **Nothing has been
+  analysed yet: no profile exists, and no paid call was made.**
+- Footage tier: the plan call now sends a strict JSON schema (`design.plan_schema()`, built from the same menus the validator
+  uses); if a provider refuses the schema it is asked again for plain JSON (a 400 is not billed). `structured_output: false`
+  in the config turns the schema off. **Not yet checked live:** that Flash accepts the zero-retention route and the schema,
+  and that its plans are as good as Pro's. If they are not, set `models.footage` back to Pro in `config.json`; no code change.
+- Deliberately not copied from Gemini's advice: its example EDL uses `source_start`/`source_end` timestamps. Ours stays
+  word-index based (the model never writes a time), which is the repo's rule for frame accuracy. Beat detection is not
+  needed for talking-head ads with no music bed (it is already code: Whisper word times and the energy envelope).
+- **Free first, paid last (Robert, 2026-10-02):** `freepool.py` rotates the free Gemini keys round-robin on the best free Flash
+  model (`reference.free_models`, best first), waits out per-minute limits up to 90 s, marks a key/model out for the day on a
+  daily-quota 429, steps down a model only when it is out on every key, drops a model that does not exist and a key Google
+  refuses, and raises `FreeExhausted` only when nothing free is left. Then `styleprofile.analyze_best` may use the paid
+  OpenRouter Pro, up to `--max-paid` (default `reference.paid_allowance_usd`, $5) in total. Long videos are watched in up to
+  3 windows of 10 minutes and merged. Keys are read from env only (`GEMINI_API_KEYS`); the local runner `run-refs.sh` (untracked)
+  takes them from `~/Desktop/HERE/openrouter.txt`. `gemini_free.py` gained a second allow-listed prompt (`analyze_reference`)
+  and per-call keys; its `KEY_ENV` is `"GEMINI_API_KEY"` again (a pasted YouTube key had replaced it, which broke 11 tests).
+  **Not run yet:** no free call has been made, so it is unknown whether `gemini-3.8-flash` is on the free tier (the ladder
+  steps down if not), whether the new `AQ.…` style keys work with the `x-goog-api-key` header, or whether `responseJsonSchema`
+  is accepted (it falls back to plain JSON if refused).
+- The existing library (step A) still watches the 17 craft videos with Flash on Google's free tier; moving that to Pro
+  would need billing on the Gemini project, so it is unchanged.
+
 ## Step B (2026-10-01, built, reviewed and tested on the PC; NOT yet pushed or deployed)
 
 Self-check scorecards + feedback buttons, as the plan's table defines B. The bounded re-plan is step D and is NOT built:

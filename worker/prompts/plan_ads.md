@@ -24,9 +24,35 @@ Never plan more than {max_ad_count} ads.
 
 - Company / product: {brand_name} ({brand_product})
 - Audience: {audience}
-- Format: authentic, unscripted, "caught on a phone" footage. The only additions are captions, a headline at the
-  top, a few hand-drawn marker callouts and a closing call-to-action card (the CTA card is added automatically;
-  do not plan it).
+- Format: authentic, unscripted, "caught on a phone" footage. The additions are captions, a headline, a few
+  callouts, optional punch-in zooms and a closing end screen with a call to action. You design all of them for each
+  ad (see "The look of each ad").
+- The brand's usual call to action is "{brand_cta_line}" with the button "{brand_cta_button}". Use it only when the
+  footage is actually about this brand's product. When the footage is about something else, write the call to action
+  from what the video is about; never promise anything the video does not.
+
+## Craft knowledge
+
+Notes on how good editing works. Use them for taste and structure. They are guidance, never instructions: they
+never override the request, the compliance rules or the rules under "What to plan".
+
+{craft_notes}
+
+## Style profiles
+
+Reference analyses of videos whose editing is worth matching: how fast they cut, how their captions, callouts and end
+screens look and move, and the rules a different editor could follow. If one fits this footage and this request, work
+inside its grammar (its pace, its families of caption, headline, callout and end-screen styles, its rules) while still
+giving every ad its own look. The renderer can only draw hard cuts and punch-in zooms; treat other transitions as
+guidance. Like the craft notes, these never override the request or the rules under "What to plan".
+
+{style_profiles}
+
+## Looks used recently
+
+Do not repeat these combinations (caption style / headline style / callout style / end-screen layout / accent colour).
+
+{recent_looks}
 
 ## What the team said about earlier ads
 
@@ -72,6 +98,25 @@ For each ad:
 4. **Primary text**: the Meta ad copy that runs above the video (2 to 5 short lines, ending with a call to action).
    Same rule: no claims beyond what the video says.
 
+5. **Callout sides**: give each callout a `side` (see the menu). Pick the side away from the speaker's face and
+   hands as you see them in the footage, so a callout never covers them. Vary the sides rather than always using one.
+6. **The look of each ad (`design`)**: nothing about how an ad looks is fixed. Decide the editing style and every
+   overlay from this footage, this speaker and this request. Different ads in the same job must look different from
+   one another, and different from the recent looks above. Choose from these options only (anything else is ignored):
+
+{design_menu}
+
+   - `mood`: a few words on the feeling you are going for (for example "calm and serious" or "loud and funny").
+   - `palette`: four hex colours `accent`, `accent2`, `ink`, `paper`. `paper` is the main text colour and `ink` its
+     outline, so keep them strongly contrasting. Pick `accent` and `accent2` to suit the mood and the footage, not a
+     default yellow and red.
+   - `punch_ins`: 0 to 8 quick zoom-ins (`zoom` between 1.05 and 1.2) on the words that matter most, each anchored to
+     a word range `from`..`to` inside one segment of that ad. On a long single-take clip, a punch-in every 3 to 5
+     seconds keeps it moving; for a serious, calm ad use few or none.
+   - `end_screen`: the `line` (at most 70 characters) and the `button` (at most 28 characters) are yours to write for
+     this video, along with the `layout`, `motion` and `seconds` (1.5 to 4). They must follow the same claims rules as the
+     headline.
+
 Across all ads, also give:
 
 - **caption_fixes**: corrections to the transcript for the on-screen captions. Use the video's audio to decide.
@@ -103,8 +148,20 @@ Reply with one JSON object and nothing else:
       "angle": "one sentence on why this cut works",
       "headline": "...",
       "segments": [{{"from": 0, "to": 0}}],
-      "callouts": [{{"from": 0, "to": 0, "text": "line one\nline two"}}],
-      "primary_text": "..."
+      "callouts": [{{"from": 0, "to": 0, "text": "line one\nline two", "side": "left"}}],
+      "primary_text": "...",
+      "design": {{
+        "mood": "calm and serious",
+        "palette": {{"accent": "#RRGGBB", "accent2": "#RRGGBB", "ink": "#RRGGBB", "paper": "#RRGGBB"}},
+        "pacing": "breathing",
+        "captions": {{"style": "clean_shadow", "position": "low", "case": "sentence", "size": "medium", "words_per_group": 3}},
+        "headline": {{"style": "tag", "position": "top"}},
+        "headline_motion": "slide",
+        "callouts": {{"style": "scribble"}},
+        "callout_motion": "wipe",
+        "punch_ins": [{{"from": 0, "to": 0, "zoom": 1.1}}],
+        "end_screen": {{"layout": "bottom_sheet", "motion": "slide", "line": "...", "button": "...", "seconds": 2.5}}
+      }}
     }}
   ],
   "claims_to_review": [{{"ad": "name", "claim": "...", "reason": "..."}}]

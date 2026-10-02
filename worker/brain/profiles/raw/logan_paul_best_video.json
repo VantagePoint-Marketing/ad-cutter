@@ -1,0 +1,84 @@
+{
+  "name": "logan_paul_best_video",
+  "source": "https://www.youtube.com/watch?v=2v-Dv5YYaGQ",
+  "summary": "An educational video essay breaking down narrative rhythm and contrast in video editing. The style features talking-head analysis intercut with NLE timeline screenshots, diagrammatic scribbles, and dynamic pacing shifts.",
+  "cadence": {
+    "average_shot_seconds": 2.8,
+    "cut_on_beat": true,
+    "b_roll_ratio": 0.725,
+    "zoom_punch": "every_4_6_seconds",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "clean_shadow"
+    ],
+    "case": [
+      "sentence",
+      "upper"
+    ],
+    "position": [
+      "low",
+      "middle"
+    ],
+    "notes": "Minimal dialogue captions used primarily for quoting source footage or key punchlines with clean drop shadows."
+  },
+  "headline": {
+    "styles": [
+      "big_stack",
+      "ribbon"
+    ],
+    "notes": "Large distressed white uppercase typography introduces major concepts like CONTRAST EDITING and RHYTHM across split backgrounds."
+  },
+  "callouts": {
+    "styles": [
+      "scribble",
+      "marker_box",
+      "pill_label"
+    ],
+    "motions": [
+      "wipe",
+      "pop",
+      "fade"
+    ],
+    "notes": "White hand-drawn digital scribbles, story arc lines, and timeline bracket annotations explain pacing structure."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "l_cut",
+      "j_cut"
+    ],
+    "notes": "Sharp hard cuts dominate, paired with deliberate sound design drops and sudden audio swells."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "Direct and educational."
+  },
+  "rules": [
+    "Anchor theoretical editing lessons with immediate source footage demonstrations.",
+    "Display timeline UI directly beneath footage to visualize audio and cut density.",
+    "Use hand-drawn animated white graphs to visualize narrative tension arcs.",
+    "Contrast fast-paced montage sequences with prolonged uninterrupted dialogue cuts.",
+    "Cut audio completely for punchy naked talking head segments.",
+    "Pair thematic shifts with dramatic musical swells and sudden breaks.",
+    "Label temporal milestones and average cut durations with clear text overlays.",
+    "Vary cut duration across scenes to create distinct rhythm and emotional variety",
+    "Display editing timelines beneath footage to directly demonstrate structural choices",
+    "Use hand-drawn narrative curves to map rising and falling emotional tension",
+    "Cut on musical beats during fast sequences, but hold long takes during climax moments",
+    "Use music swells and sudden music cutouts to accentuate story shifts"
+  ],
+  "avoid": [
+    "Monotonous pacing across consecutive scenes.",
+    "Static talking-head shots exceeding five seconds without punch-ins.",
+    "Flashing rainbow caption animations or karaoke text pills.",
+    "Generic stock wipes or artificial transition effects.",
+    "Constant hyperactive fast-cutting without breathing room",
+    "Distracting animated caption presets or karaoke highlighting",
+    "Flashy transitional effects like digital glitches or whip zooms",
+    "Crowding the screen with unnecessary stickers or emojis"
+  ]
+}

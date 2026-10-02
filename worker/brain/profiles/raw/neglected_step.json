@@ -1,0 +1,84 @@
+{
+  "name": "neglected_step",
+  "source": "https://www.youtube.com/watch?v=1SmdeL-WN40",
+  "summary": "A creative tutorial breaking down the process of sound designing an action scene from John Wick. The editing blends dynamic talking-head commentary with timeline screen captures, movie clips, and bold visual markers synced to sound cues.",
+  "cadence": {
+    "average_shot_seconds": 2.8,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0.7,
+    "zoom_punch": "every_4_6_seconds",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "impact_single",
+      "bold_outline"
+    ],
+    "case": [
+      "upper"
+    ],
+    "position": [
+      "middle"
+    ],
+    "notes": "Does not use standard continuous dialogue captions; instead flashes large single uppercase action words on screen to highlight Foley beats."
+  },
+  "headline": {
+    "styles": [
+      "ribbon",
+      "big_stack"
+    ],
+    "notes": "Uses colored horizontal bars to organize and track workflow stages, alongside occasional big center title cards."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "banner",
+      "scribble"
+    ],
+    "motions": [
+      "pop",
+      "fade",
+      "slide"
+    ],
+    "notes": "Uses hand-drawn colored outlines and rectangular highlighter overlays on timeline clips and video footage."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "j_cut"
+    ],
+    "notes": "Fast hard cuts between host and timeline UI, enhanced with audio J/L cuts for smooth sound playback."
+  },
+  "end_screen": {
+    "layouts": [
+      "centered_card",
+      "minimal_line"
+    ],
+    "tone": "playful"
+  },
+  "rules": [
+    "Cut immediately to the timeline UI when demonstrating a specific sound sample",
+    "Display bold kinetic text on screen precisely when an action hit or sword slash occurs",
+    "Punch in on the speaker's face to emphasize comedic reactions and disbelief",
+    "Use a color-coded numbered layer graphic as a recurring chapter menu",
+    "Maintain high speech density by trimming dead air between phrases",
+    "Show full-screen A/B playback before and after adding a new sound design pass",
+    "Overlay the speaker via picture-in-picture during full action playback to maintain connection",
+    "Highlight specific timeline tracks with a contrasting stroke or zoom-in",
+    "Switch between full-screen timeline, talking head, and film playback every 2 to 4 seconds.",
+    "Place the editor in a rounded picture-in-picture corner box during extended film playback.",
+    "Punch in dynamically on timeline waveforms when demonstrating specific sound effects.",
+    "Use uppercase single-word impact titles tracked to screen motion for emphasized action."
+  ],
+  "avoid": [
+    "Continuous word-by-word karaoke captions",
+    "Uncut conversational pauses and rambling",
+    "Lengthy static screen recordings without cursor or audio movement",
+    "Complex 3D transition wipes or artificial lens flares",
+    "Monotone pacing without reaction cutaways",
+    "Never let a static timeline view sit without zoom punch-ins for more than 5 seconds.",
+    "Avoid continuous full-dialogue auto-captions.",
+    "Avoid fancy wipe or dissolve transitions."
+  ]
+}

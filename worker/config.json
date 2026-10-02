@@ -2,7 +2,18 @@
   "output_dir": "C:/Users/RobB.CORP/OneDrive - Market Technologies, LLC/RevOps/Meta Ads/05 Ad Cutter Drafts",
   "work_dir": "%LOCALAPPDATA%/ad-cutter",
 
-  "plan_model": "google/gemini-3.1-pro-preview",
+  "models": {
+    "reference": {"model": "google/gemini-3.1-pro-preview", "reasoning": "high"},
+    "footage": {"model": "google/gemini-3.8-flash", "reasoning": "medium"},
+    "review": {"model": "google/gemini-3.8-flash", "reasoning": "low"}
+  },
+  "structured_output": true,
+  "reference": {
+    "free_models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"],
+    "window_seconds": 600,
+    "max_windows": 3,
+    "paid_allowance_usd": 5.0
+  },
   "openrouter_key_env": "OPENROUTER_VIDEO_AGENT_KEY",
   "monthly_budget_usd": 100,
   "max_source_seconds": 600,

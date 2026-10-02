@@ -120,7 +120,8 @@ def review_ads(cfg: dict, client: llm.OpenRouter, *, brief: str, entries: list[d
             prompt = build_prompt(e, brief)
             tokens = llm.video_tokens(float(e.get("len") or 0)) + len(prompt) // 3
             # the worst this one call can cost (one attempt, no retry): never start a call that could pass the cap
-            est = llm.estimate_cost(cfg["plan_model"], tokens, MAX_OUTPUT_TOKENS)
+            model, reasoning = llm.model_for(cfg, "review")
+            est = llm.estimate_cost(model, tokens, MAX_OUTPUT_TOKENS)
             if spent + est > cap:
                 notes.append(f"Self-check: stopped after ${spent:.2f}; the next check could cost up to ${est:.2f} and the "
                              f"limit is ${cap:.2f} a job. Ads {', '.join(str(x['k']) for x in todo[n - 1:])} were not checked.")
@@ -128,8 +129,8 @@ def review_ads(cfg: dict, client: llm.OpenRouter, *, brief: str, entries: list[d
             content = [{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,"
                                                                   + base64.b64encode(proxy.read_bytes()).decode("ascii")}},
                        {"type": "text", "text": prompt}]
-            raw, usage = client.chat_json(cfg["plan_model"], content, route="zdr", label=f"check ad {k}",
-                                          est_input_tokens=tokens, max_tokens=MAX_OUTPUT_TOKENS, reasoning="low",
+            raw, usage = client.chat_json(model, content, route="zdr", label=f"check ad {k}",
+                                          est_input_tokens=tokens, max_tokens=MAX_OUTPUT_TOKENS, reasoning=reasoning,
                                           attempts=1, timeout=300)
             spent += float(usage.get("cost") or 0.0)
             failures = 0
