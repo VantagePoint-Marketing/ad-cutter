@@ -1,0 +1,15 @@
+# Reference videos for the style-profile tier (Gemini Pro, tools/analyze_reference.py --list).
+# One per line: link  [minutes]  [name]. Tracking ids (?si=...) are dropped automatically.
+# Minutes come from library/foundation.txt; the two marked "assumed" were not in it, so 15 is a guess.
+https://youtu.be/mPhhBgTIG2Y 15 story_deeper
+https://youtu.be/IROKEjmIIlM 36 editing_ruins_video
+https://youtu.be/CwQi9k-0yNY 15 music_saves_videos
+https://youtu.be/q9O-3ezgS3Y 13 five_secrets
+https://youtu.be/XIVSa3wo0JU 11 three_secrets
+https://youtu.be/1SmdeL-WN40 17 neglected_step
+https://youtu.be/2v-Dv5YYaGQ 14 logan_paul_best_video
+https://youtu.be/qxPABRWoYfg 9 stock_footage_commercial
+https://youtu.be/4EDh6RHLyPQ 11 logan_paul_vlog
+https://youtu.be/QR8LxximqWI 6 five_more_mistakes
+https://youtu.be/fO0MZUexdOs 15 ref_fO0MZUexdOs      # length assumed
+https://youtu.be/sTRlKTYrx_E 15 ref_sTRlKTYrx_E      # length assumed

@@ -25,7 +25,33 @@ MAX_PROMPT_CHARS = 8000
 ZOOM_PUNCH = ("none", "rare", "every_4_6_seconds", "frequent")
 TRANSITIONS = ("hard_cut", "zoom_punch", "whip_pan", "speed_ramp", "dip_to_black", "match_cut", "j_cut", "l_cut")
 RENDERED_TRANSITIONS = ("hard_cut", "zoom_punch")      # the renderer only does these; the rest are guidance
-YOUTUBE = re.compile(r"^https://(www\.youtube\.com/watch\?v=|youtu\.be/)[A-Za-z0-9_-]{11}([&?][\w=&%-]*)?$")
+YOUTUBE = re.compile(r"^https://(?:www\.youtube\.com/watch\?(?:[\w=&%-]*&)?v=|youtu\.be/)([A-Za-z0-9_-]{11})(?:[&?][\w=&%.-]*)?$")
+
+
+def normalize_youtube(source) -> str | None:
+    """The canonical link for a YouTube video (any share form), or None if it is not one. Share links carry a
+    tracking id (`?si=...`) that identifies who shared it; it is dropped before the link goes anywhere."""
+    m = YOUTUBE.match(source) if isinstance(source, str) else None
+    return f"https://www.youtube.com/watch?v={m.group(1)}" if m else None
+
+
+def parse_list(text: str, default_minutes: float = 15.0) -> list[tuple[str, float, str]]:
+    """Lines of `link [minutes] [name]` (blank lines and # comments ignored) -> (canonical link, minutes, name)."""
+    out = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        url = normalize_youtube(parts[0])
+        if not url:
+            raise llm.LLMError(f"not a YouTube video link: {parts[0][:80]}")
+        try:
+            minutes = float(parts[1]) if len(parts) > 1 else default_minutes
+        except ValueError as err:
+            raise llm.LLMError(f"minutes must be a number in: {line[:80]}") from err
+        out.append((url, minutes, parts[2] if len(parts) > 2 else "ref_" + url[-11:]))
+    return out
 
 
 def _names(raw, menu) -> list[str]:
@@ -137,8 +163,9 @@ def analyze(cfg: dict, client: llm.OpenRouter, source: str | Path, name: str, mi
     local files go zero-retention."""
     model, reasoning = llm.model_for(cfg, "reference")
     prompt = build_prompt(name)
-    if isinstance(source, str) and YOUTUBE.match(source):
-        video, route, seconds, label = {"url": source}, "youtube", minutes * 60, source
+    link = normalize_youtube(source)
+    if link:
+        video, route, seconds, label = {"url": link}, "youtube", minutes * 60, link
     else:
         path = Path(source)
         if not path.is_file():

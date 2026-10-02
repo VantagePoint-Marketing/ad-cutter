@@ -237,3 +237,42 @@ def test_the_prompt_carries_the_style_profiles_section():
     cfg = {"brand": BRAND, "ad_count": 2, "ad_min_seconds": 20, "ad_max_seconds": 75}
     p = ac.build_prompt(cfg, [{"w": "hi", "s": 0.0, "e": 0.3}])
     assert "## Style profiles" in p and "(No style profiles yet.)" in p
+
+
+# ---------------------------------------------------------------- links and lists
+
+@pytest.mark.parametrize("link", [
+    "https://youtu.be/mPhhBgTIG2Y?si=jcYI0oDFOPQ1pT9V", "https://youtu.be/mPhhBgTIG2Y",
+    "https://www.youtube.com/watch?v=mPhhBgTIG2Y&t=42s&si=abc", "https://www.youtube.com/watch?feature=share&v=mPhhBgTIG2Y"])
+def test_share_links_become_one_clean_canonical_link(link):
+    assert styleprofile.normalize_youtube(link) == "https://www.youtube.com/watch?v=mPhhBgTIG2Y"
+
+
+@pytest.mark.parametrize("bad", [None, 5, "", "http://youtu.be/mPhhBgTIG2Y", "https://youtu.be/short",
+                                 "https://www.youtube.com/playlist?list=PL123", "https://evil.com/watch?v=mPhhBgTIG2Y",
+                                 "https://www.youtube.com.evil.com/watch?v=mPhhBgTIG2Y"])
+def test_anything_else_is_not_a_youtube_video_link(bad):
+    assert styleprofile.normalize_youtube(bad) is None
+
+
+def test_the_tracking_id_is_never_sent():
+    client = FakeClient(REPLY)
+    styleprofile.analyze({}, client, "https://youtu.be/mPhhBgTIG2Y?si=jcYI0oDFOPQ1pT9V", "x")
+    assert client.calls[0][1][0]["video_url"]["url"] == "https://www.youtube.com/watch?v=mPhhBgTIG2Y"
+
+
+def test_a_list_gives_links_minutes_and_names_and_skips_comments():
+    rows = styleprofile.parse_list("# header\n\nhttps://youtu.be/mPhhBgTIG2Y?si=x 12 story  # note\n"
+                                   "https://youtu.be/IROKEjmIIlM\n")
+    assert rows == [("https://www.youtube.com/watch?v=mPhhBgTIG2Y", 12.0, "story"),
+                    ("https://www.youtube.com/watch?v=IROKEjmIIlM", 15.0, "ref_IROKEjmIIlM")]
+    with pytest.raises(llm.LLMError, match="not a YouTube"):
+        styleprofile.parse_list("https://example.com/x")
+    with pytest.raises(llm.LLMError, match="minutes"):
+        styleprofile.parse_list("https://youtu.be/mPhhBgTIG2Y lots")
+
+
+def test_the_shipped_reference_list_parses_and_every_entry_is_unique():
+    path = Path(__file__).resolve().parents[1] / "library" / "references.txt"
+    rows = styleprofile.parse_list(path.read_text(encoding="utf-8"))
+    assert len(rows) == 12 and len({r[0] for r in rows}) == 12 and len({r[2] for r in rows}) == 12
