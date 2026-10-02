@@ -3,22 +3,28 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
-## The agent's own storage (2026-10-02, committed locally, NOT pushed; needs a token pasted into Railway)
+## The agent's own storage (2026-10-02, committed locally, NOT pushed; needs tokens pasted into Railway)
 
 Robert asked for a Supabase/Drive/OneDrive backend so the agent can keep skills, memory, references and assets; he chose Supabase, the existing
-project "MyVantagePointAI | Marketing Department" (`wxoeiwkrannpwtdpgdsa`), with a NEW private bucket.
-- **Bucket** `video-agent` (private, 50 MB per file, no storage policies, so only the service role can touch it). Created with SQL; nothing else in
-  that project was changed.
-- **Gate** `supabase/functions/video-agent-store/index.ts` (Edge Function, `verify_jwt` off, custom auth): the worker holds ONE shared token, never a
-  Supabase key. The function checks the token by SHA-256 hash (hash is in the source), then allows list / signed upload / signed download / delete / small
-  text, only inside `skills/ memory/ references/ assets/ exports/`, with strict path checks. Rotate: new token, new hash in the source, redeploy via the
-  Supabase MCP `deploy_edge_function` (verify_jwt false), paste the token into Railway. The deployed code equals the repo file.
-- **Client** `worker/agent_store.py` (`AgentStore.from_env()`, needs `AGENT_STORE_TOKEN`; `AGENT_STORE_URL` defaults to the gate), through
-  `net.request_bytes` (new; the Supabase host is on the allowlist). **Sync** `worker/hub_sync.py`: uploads what the agent LEARNED
-  (`Hub.dump_learned`) to `memory/hub/<env>.jsonl.gz` and the Obsidian vault to `exports/hub-<env>.zip` when it changed (at most every 6 h);
-  `HUB_RESTORE_FROM=staging` on a new environment takes in staging's notes once. The worker logs `sync: self-test: storage works ...` at start.
-- **Not done**: assets (B-roll cache, generated clips) and reference files are not written yet; the store API is ready for them. Nobody has pasted the
-  token into Railway yet, so nothing syncs until `AGENT_STORE_TOKEN` is set on the worker (staging and production, same token) and the code is pushed.
+project "MyVantagePointAI | Marketing Department" (`wxoeiwkrannpwtdpgdsa`), with a NEW private bucket. (The architect advised a dedicated project for a
+financial-software company, about $10/month; Robert chose the shared project, so the gate is hardened instead. Revisit before production relies on it.)
+- **Bucket** `video-agent` (private, 50 MB per file, no storage policies, so only the service role can touch it) and one helper function
+  `public.video_agent_bucket_bytes()` (security definer, service role only) for the 10 GB cap. Nothing else in that project was changed.
+- **Gate** `supabase/functions/video-agent-store/index.ts` (Edge Function v2, `verify_jwt` off, custom auth). Each Railway environment has its OWN token
+  (hashes in the source: staging, production). Rules: read anything; write only `<folder>/<own env>/...`; never replace an existing file except under
+  `exports/` and `_selftest/`; delete only there; paths at most 6 parts; total cap 10 GB; signed links last 2 minutes. Rotate a token: add the new hash,
+  redeploy (Supabase MCP `deploy_edge_function`, verify_jwt false), paste the new token into Railway, remove the old hash, redeploy. A leftover 3-byte probe
+  file `memory/staging/probe/a.txt` cannot be deleted by any token (add-only); remove it by hand if wanted.
+- **Client** `worker/agent_store.py` (`AgentStore.from_env()`, needs `AGENT_STORE_TOKEN` and `AGENT_STORE_ENV`) through `net.request_bytes`. **Sync**
+  `worker/hub_sync.py`: adds `memory/<env>/hub/<UTC time>.jsonl.gz` (what the agent LEARNED) when it changed (at most every 6 h) and rewrites
+  `exports/<env>/hub-vault.zip` (Obsidian vault). Restores are insert-only: `HUB_RESTORE_FROM=staging` on production takes in staging's newest snapshot once;
+  a hub that lost its data takes its own newest snapshot back before it uploads anything. A restore never touches existing notes, never creates rules or
+  skills, forces the origin to the agent's kinds, skips retired notes and refuses snapshots over 50 MB unpacked. The worker logs `sync: self-test: ...`.
+- **Verified live**: the real client's selftest passes for both tokens (text, large file via signed link, replace, list, delete); the gate refuses a retired
+  token, cross-environment writes, overwrites of history, deletes of memory, bad JSON and 7-part paths.
+- **Not done**: assets (B-roll cache, generated clips) and reference files are not written yet; the API is ready for them. No token has been pasted into Railway
+  yet, so nothing syncs until `AGENT_STORE_TOKEN` (staging's token on the staging worker, production's on the production worker) and `AGENT_STORE_ENV` are set
+  and the code is pushed. Missing before production relies on it: an off-Supabase weekly copy of `memory/`, Supabase usage alerts, tests of the TypeScript gate itself.
 
 ## The design engine (2026-10-02, committed locally on `w0-worker-cloud`, NOT pushed; commits 33ce263, 0ec31b8)
 
