@@ -75,13 +75,27 @@ def vault_files(items: list[dict], links: list[tuple]) -> dict[str, str]:
         files[f"_index/{kind}.md"] = f"# {kind.capitalize()} notes ({len(group)})\n\n" + "\n".join(
             f"- {wikilink(it)}" for it in sorted(group, key=lambda x: x["title"].lower())) + "\n"
     files["README.md"] = (
-        "# Ad Cutter knowledge hub\n\nExported from the editing agent's knowledge hub: what it has learned from videos, ads and "
-        "skills, in our own words, with links between notes. Open this folder as a vault in Obsidian.\n\n"
+        "# Ad Cutter knowledge hub\n\nExported from the editing agent's knowledge hub: the video-editing techniques and lessons it has "
+        "learned, and the reference videos and ads it studied, in our own words, with links between notes. The agent also keeps "
+        "thousands of how-to chunks from the HyperFrames and ffmpeg skill files in its database; they are not copied here. "
+        "Open this folder as a vault in Obsidian.\n\n"
         + "\n".join(f"- [[_index/{k}|{k.capitalize()} ({len(v)})]]" for k, v in sorted(kinds.items())) + "\n")
     return files
 
 
-def vault_zip(items: list[dict], links: list[tuple]) -> bytes:
+def curate(items: list[dict], links: list[tuple]) -> tuple[list[dict], list[tuple]]:
+    """What people (and the shared storage) need from the hub: the editing knowledge the agent holds and the reference videos and ads
+    it studied. The thousands of how-to chunks copied from the HyperFrames and ffmpeg skill files (origin 'seed', kind recipe or skill)
+    stay in the agent's database for its own use, but are left out of the vault: they are reference manuals, not knowledge."""
+    keep = [it for it in items if not (it.get("origin") == "seed" and it.get("kind") in ("recipe", "skill"))]
+    ids = {it["id"] for it in keep}
+    return keep, [l for l in links if l[0] in ids and l[1] in ids]
+
+
+def vault_zip(items: list[dict], links: list[tuple], everything: bool = False) -> bytes:
+    """The vault as a zip. Curated (see `curate`) unless everything=True."""
+    if not everything:
+        items, links = curate(items, links)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for path, text in sorted(vault_files(items, links).items()):

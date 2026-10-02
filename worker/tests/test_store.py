@@ -374,3 +374,39 @@ def test_the_snapshot_holds_nothing_but_learned_notes_and_never_selftest_notes()
             return type("C", (), {"fetchall": lambda self: []})()
     hubmod.Hub(lambda: Conn()).dump_learned()
     assert "origin <> 'seed'" in sql_seen[0] and "selftest-" in sql_seen[0] and "selftest-" in sql_seen[1] and "evidence" not in " ".join(sql_seen)
+
+
+# ---------------------------------------------------------------- what goes into the vault
+
+def test_the_vault_leaves_out_the_seeded_skill_manual_chunks_but_keeps_knowledge_and_references():
+    import io
+    import zipfile
+
+    import hub_export
+    items = [{"id": 1, "kind": "recipe", "slug": "manual-chunk", "title": "Manual chunk", "body": "x", "tags": [], "meta": {}, "origin": "seed", "status": "active", "confidence": None},
+             {"id": 2, "kind": "skill", "slug": "a-skill", "title": "A skill", "body": "x", "tags": [], "meta": {}, "origin": "seed", "status": "active", "confidence": None},
+             {"id": 3, "kind": "technique", "slug": "punch-in", "title": "Punch-in", "body": "x", "tags": [], "meta": {}, "origin": "seed", "status": "active", "confidence": None},
+             {"id": 4, "kind": "recipe", "slug": "from-video", "title": "From a video", "body": "x", "tags": [], "meta": {}, "origin": "youtube", "status": "active", "confidence": None},
+             {"id": 5, "kind": "example", "slug": "ref-1", "title": "A reference ad", "body": "x", "tags": [], "meta": {}, "origin": "foreplay", "status": "active", "confidence": None},
+             {"id": 6, "kind": "rule", "slug": "r", "title": "A rule", "body": "x", "tags": [], "meta": {}, "origin": "seed", "status": "active", "confidence": None}]
+    links = [(1, 3, "implements", ""), (4, 3, "implements", ""), (5, 3, "example_of", "")]
+    keep, kept_links = hub_export.curate(items, links)
+    assert [i["id"] for i in keep] == [3, 4, 5, 6] and [(l[0], l[1]) for l in kept_links] == [(4, 3), (5, 3)]
+    names = zipfile.ZipFile(io.BytesIO(hub_export.vault_zip(items, links))).namelist()
+    assert "recipe/manual-chunk.md" not in names and "technique/punch-in.md" in names and "example/ref-1.md" in names and "recipe/from-video.md" in names
+    full = zipfile.ZipFile(io.BytesIO(hub_export.vault_zip(items, links, everything=True))).namelist()
+    assert "recipe/manual-chunk.md" in full
+
+
+def test_a_changed_vault_rule_makes_each_environment_rewrite_its_vault_once_without_a_new_snapshot(gate, monkeypatch):
+    monkeypatch.setattr(hub_sync, "stamp", lambda: "20261002T100000Z")
+    hub = FakeHub([note(1)])
+    s, clock = make_syncer(hub, make_store(gate))
+    s.step()
+    s.step()
+    assert "exports/staging/hub-vault.zip" in gate.files and hub.state["sync"]["vault"] == hub_sync.VAULT_VERSION
+    gate.files["exports/staging/hub-vault.zip"] = b"old, everything-in-it vault"
+    hub.state["sync"] = {k: v for k, v in hub.state["sync"].items() if k != "vault"}      # as if saved by the previous version
+    clock["t"] += hub_sync.EVERY + 1
+    assert s.step().startswith("saved 1 learned notes")
+    assert gate.files["exports/staging/hub-vault.zip"] != b"old, everything-in-it vault" and len(snapshot_files(gate, "staging")) == 1

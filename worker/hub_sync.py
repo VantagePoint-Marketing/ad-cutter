@@ -36,6 +36,7 @@ log = logging.getLogger("ad-cutter")
 EVERY = 6 * 3600              # seconds between looks for changes to upload
 BATCH = 60                    # notes taken in per restore step
 VERSION = 1
+VAULT_VERSION = "curated-1"   # bump to make every environment rewrite its vault once (e.g. after changing what the vault holds)
 MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024        # after decompression
 RESTORE_KINDS = ("source", "lesson", "technique", "recipe", "example")      # never rule or skill
 RESTORE_ORIGINS = ("youtube", "foreplay", "library", "agent")
@@ -127,11 +128,12 @@ class Syncer:
         items, links = self.hub.dump_learned()
         data = snapshot_bytes(items, links)
         digest = fingerprint(data)
-        if state.get("uploaded") != digest:
-            self.store.put_bytes(self.store.own("memory", f"hub/{stamp()}.jsonl.gz"), data, "application/gzip")
-            all_items, all_links = self.hub.everything()
+        if state.get("uploaded") != digest or state.get("vault") != VAULT_VERSION:
+            if state.get("uploaded") != digest:                    # a new snapshot only when what was learned changed
+                self.store.put_bytes(self.store.own("memory", f"hub/{stamp()}.jsonl.gz"), data, "application/gzip")
+            all_items, all_links = hub_export.curate(*self.hub.everything())
             self.store.put_bytes(self.store.own("exports", "hub-vault.zip"), hub_export.vault_zip(all_items, all_links), "application/zip")
-            self.hub.set_state("sync", {**state, "uploaded": digest})
+            self.hub.set_state("sync", {**state, "uploaded": digest, "vault": VAULT_VERSION})
             self.next_at = self.now() + EVERY
             return f"saved {len(items)} learned notes and {len(links)} links, and the Obsidian vault ({len(all_items)} notes)"
         self.next_at = self.now() + EVERY
