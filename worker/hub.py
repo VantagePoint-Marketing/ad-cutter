@@ -232,14 +232,41 @@ class Hub:
             if not self.evidence(a):
                 raise RuntimeError("evidence was not stored")
             self.counts()
+            gid = self.add_goal("selftest goal", "ads", ["selftest"], asked_by="agent")
+            if gid is None or gid not in [g["id"] for g in self.goals(200)]:
+                raise RuntimeError("the goals list did not show the new goal")
+            self.skip_goal(gid)
             return "hub SQL works on this database"
         finally:
+            with self.connect() as c:
+                c.execute("delete from kb_goals where goal = 'selftest goal'")
             for slug in ("_selftest-a", "_selftest-b"):
                 self.delete("rule", slug)
             with self.connect() as c:
                 c.execute("delete from kb_state where key = '_selftest'")
 
     # ---------------------------------------------------------------- goals (what the agent wants to learn)
+
+    def goals(self, limit: int = 60) -> list[dict]:
+        """What the agent is learning or has learned: working first, then waiting, then finished, newest first."""
+        with self.connect() as c:
+            rows = c.execute(
+                "select id, goal, kind, status, reason, asked_by, attempts, result, updated_at from kb_goals "
+                "order by case status when 'working' then 0 when 'open' then 1 else 2 end, updated_at desc, id desc limit %s",
+                (max(1, min(int(limit), 200)),)).fetchall()
+        out = []
+        for r in rows:
+            result = r[7] if isinstance(r[7], dict) else json.loads(r[7] or "{}")
+            out.append({"id": r[0], "goal": r[1], "kind": r[2], "status": r[3], "reason": r[4], "asked_by": r[5], "attempts": r[6],
+                        "added": result.get("added") or {}, "cost_usd": result.get("cost_usd"), "at": r[8].isoformat()})
+        return out
+
+    def skip_goal(self, goal_id: int) -> bool:
+        """Take a goal off the list (not one being worked on right now). True when it changed."""
+        with self.connect() as c:
+            row = c.execute("update kb_goals set status = 'skipped', reason = 'removed by staff', updated_at = now() "
+                            "where id = %s and status <> 'working' returning id", (goal_id,)).fetchone()
+        return bool(row)
 
     def add_goal(self, goal: str, kind: str = "tutorial", queries: list[str] | None = None, asked_by: str = "agent") -> int | None:
         """A new learning goal; None when the same goal already exists."""

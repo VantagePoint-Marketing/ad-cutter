@@ -22,6 +22,15 @@ REQUEST>>>
 The video is a vertical phone clip: a headline at the top, word-by-word captions, a few marker callouts, and a
 closing call-to-action card in the last few seconds (that card is automatic; do not score it).
 
+## What is performing right now
+
+Notes on a few ads and short videos that are working in the market (other people's work, for comparison only). If this
+says nothing was provided, leave "vs_references" empty.
+
+<<<REFERENCES
+{references}
+REFERENCES>>>
+
 ## What to check
 
 Score each of these from 1 (bad) to 5 (strong). Use whole numbers only.
@@ -52,6 +61,7 @@ Reply with one JSON object and nothing else:
 {{
   "scores": {{"hook": 1, "cuts": 1, "story": 1, "captions": 1, "overlays": 1, "request_fit": 1, "compliance": 1}},
   "problems": [{{"at_s": 0.0, "area": "hook", "what": "...", "fix": "..."}}],
-  "verdict": "one or two plain sentences: would you be happy to run this ad, and what is the main reason"
+  "verdict": "one or two plain sentences: would you be happy to run this ad, and what is the main reason",
+  "vs_references": "one sentence: how this ad's hook, pacing and captions compare with the reference notes, or empty"
 }}
 ```

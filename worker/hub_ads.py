@@ -8,8 +8,10 @@ techniques it borrows. A technique an ad suggests starts as a draft and goes liv
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
+import hub as hubmod
 import hub_learn
 from hub import Hub
 from hub_learn import _tags, _text
@@ -18,8 +20,12 @@ MAX_BORROW = 4
 TONES = {"calm", "confident", "urgent", "friendly", "technical"}
 
 
+FENCES = re.compile(r">{3,}|<{3,}")
+
+
 def slug(ad_id: str) -> str:
-    return f"ref-fp-{ad_id}"
+    """The note's slug exactly as the hub stores it (lower-case, dashes), so a lookup finds what ingest wrote."""
+    return hubmod.slugify(f"ref-fp-{ad_id}", 120)
 
 
 def prompt_ads(ads: list[dict]) -> list[dict]:
@@ -29,7 +35,7 @@ def prompt_ads(ads: list[dict]) -> list[dict]:
     out = []
     for ad in ads:
         row = {k: ad.get(k) for k in keep if ad.get(k) not in (None, "", [])}
-        out.append({k: (v.replace(">>>", "> > >").replace("<<<", "< < <") if isinstance(v, str) else v) for k, v in row.items()})
+        out.append({k: (FENCES.sub(" ", v) if isinstance(v, str) else v) for k, v in row.items()})
     return out
 
 

@@ -160,6 +160,23 @@ def plain_error(err: BaseException) -> str:
 
 # ---------------------------------------------------------------- one job
 
+def record_comparisons(conn_factory, job_id: str, ref_ids: list[int], report: list[dict]) -> None:
+    """Tell the hub which reference notes each checked ad was compared with, and how the ad scored, so references that are
+    used and the ads made next to them leave a trail. Never fails a job."""
+    try:
+        hub = Hub(conn_factory)
+        for e in report:
+            r = e.get("review")
+            if not r or not ref_ids:
+                continue
+            avg = round(sum(r["scores"].values()) / len(r["scores"]), 2)
+            for rid in ref_ids:
+                hub.add_evidence(rid, "compare", {"avg": avg, "hook": r["scores"]["hook"], "vs": str(r.get("vs_references") or "")[:200]},
+                                 job_id=job_id, ad_k=e["k"])
+    except Exception as err:   # noqa: BLE001 - the ads are done; this is only bookkeeping
+        log.warning("job %s: could not record reference comparisons (%s)", job_id, type(err).__name__)
+
+
 def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
     job_id = job["id"]
     opts = job["options"] or {}
@@ -225,11 +242,13 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
             if opts.get("model") is not None:
                 run_cfg["plan_model"] = model_id
             run_cfg["plan_effort"] = effort
+        request_text = str(opts.get("request") or opts.get("brief") or opts.get("note") or "")
+        refs_text, ref_ids = hub_context.fetch_references(Hub(conn_factory), request_text)
         run = ac.run_pipeline(run_cfg, srcs, work / "pipeline", work / "out", client,
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
                               progress=progress, team_notes=db(feedback.team_notes),
-                              knowledge=hub_context.fetch(Hub(conn_factory), str(opts.get("request") or opts.get("brief") or opts.get("note") or "")))
+                              knowledge=hub_context.fetch(Hub(conn_factory), request_text), references=refs_text)
         progress("uploading")
         uploaded = {}
         for e in run["report"]:
@@ -243,6 +262,7 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         result["planned_with"] = {"model": used, "effort": run_cfg.get("plan_effort", "medium"),
                                   "model_name": next((m["tech"] for m in models.MODELS.values()
                                                       if m["openrouter"] == used), used)}
+        record_comparisons(conn_factory, job_id, ref_ids, run["report"])
         result["raw_plan"] = json.loads((work / "pipeline" / "plan.json").read_text(encoding="utf-8"))
         if uploaded:
             db(finish, job_id, "ready", result=result)
@@ -302,11 +322,16 @@ def serve(once: bool = False) -> None:
     # the knowledge hub fills and links itself a little at a time while no job waits (no outside calls, no spend); HUB_ENABLED=0 turns it off
     hub_m = hub_import.Maintainer(connect) if os.environ.get("HUB_ENABLED", "1").strip() != "0" else None
     if teach:                                      # the learner's SQL has only been run against stand-ins: prove it on this database
-        try:
-            log.info("learner self-test: %s", teach.store.selftest())
-        except Exception as err:                   # noqa: BLE001 - never stop the worker; just keep the ads goals off
-            teach.ads_broken = True
-            log.error("learner self-test FAILED, ad goals are off until fixed: %s", err)
+        for attempt in (1, 2, 3):                  # a database blip at boot must not switch ads off until the next restart
+            try:
+                log.info("learner self-test: %s", teach.store.selftest())
+                break
+            except Exception as err:               # noqa: BLE001 - never stop the worker; just keep the ads goals off
+                if attempt == 3:
+                    teach.ads_broken = True
+                    log.error("learner self-test FAILED, ad goals are off until fixed: %s", err)
+                else:
+                    time.sleep(5)
     log.info("worker %s ready; library %s; learning %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})",
              "on" if teach else f"off ({learner.why_off()})")
     last_sweep = last_release = 0.0

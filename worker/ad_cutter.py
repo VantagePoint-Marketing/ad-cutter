@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, client: llm.OpenRouter, *,
                  replan: bool = False, only: list[int] | None = None, render_it: bool = True, brief: str = "",
                  names: list[str] | None = None, progress=lambda stage, detail="": None,
-                 team_notes: str = "", knowledge: str = "") -> dict:
+                 team_notes: str = "", knowledge: str = "", references: str = "") -> dict:
     """Raw clip(s) + the person's request -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command
     line and the cloud worker. `progress(stage, detail)` is called as work moves along. `team_notes` is the
     feedback block from feedback.team_notes. After rendering, Gemini scores each finished ad (review.py; off with
@@ -795,7 +795,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     if render_it and cfg.get("review_enabled", True) and any(e.get("file") for e in report):
         progress("checking", "Gemini is watching the finished ads")
         reviews, review_notes, review_cost = review.review_ads(
-            cfg, client, brief=brief, work=work, progress=progress,
+            cfg, client, brief=brief, work=work, progress=progress, references=references,
             entries=[{**e, "video": work / f"ad{e['k']}" / "render.mp4"} for e in report if e.get("file")])
         for e in report:
             e["review"] = reviews.get(e["k"])

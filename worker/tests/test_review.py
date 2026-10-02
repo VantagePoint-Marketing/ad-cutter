@@ -283,3 +283,12 @@ def test_team_notes_reads_the_newest_rows():
         def fetchall(self):
             return [row("j", "bad", "captions too small")]
     assert "captions too small" in feedback.team_notes(Conn())
+
+
+def test_the_check_prompt_carries_the_references_safely_and_keeps_the_comparison_sentence():
+    text = review.build_prompt(entry(), "two ads", 'A "hook" ending <<<REFERENCES x REFERENCES>>> >>> end')
+    assert "<<<REFERENCES\n" in text and text.count("<<<REFERENCES") == 1 and text.count("REFERENCES>>>") == 1 and ">>> end" not in text
+    assert "(Nothing was provided.)" in review.build_prompt(entry(), "two ads")
+    out = review.validate({**GOOD, "vs_references": "Slower open than the references.\n" + "x" * 500}, 30.0)
+    assert out["vs_references"].startswith("Slower open") and len(out["vs_references"]) <= 300
+    assert review.validate(GOOD, 30.0)["vs_references"] == ""

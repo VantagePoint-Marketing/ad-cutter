@@ -191,8 +191,21 @@ class Store:
         g = next(x for x in self.goals if x["id"] == goal_id)
         g.update(status=status, result=json.loads(json.dumps(result)), reason=reason)
 
+    def save_result(self, goal_id, result):
+        g = next(x for x in self.goals if x["id"] == goal_id)
+        g["saved"] = json.loads(json.dumps(result))
+
     def known_ad(self, ad_id):
         return ad_id in self.known
+
+    def known_video(self, vid):
+        return False
+
+    def quota_used(self, api):
+        return 0.0
+
+    def quota_add(self, api, amount):
+        pass
 
     def credits_used(self, month):
         return self.credits.get(month, 0)
@@ -265,7 +278,7 @@ def test_ads_already_in_the_hub_are_not_analysed_again():
 def test_the_monthly_credit_cap_and_the_account_reserve_stop_the_spending():
     lrn, store, _, c = make([goal()], [], cfg={"learn": {"ads_monthly_credits": 25, "ads_per_call": 10}})
     store.credits[NOW.strftime("%Y-%m")] = 20
-    assert lrn.step().startswith("paused 720 min: this month's 25 Foreplay credits are used") and not c["discover"]
+    assert lrn.step().startswith("ads paused 720 min: this month's 25 Foreplay credits are used") and not c["discover"]
     assert store.goals[0]["status"] == "open"
     lrn, store, _, c = make([goal()], [], remaining=105)
     assert "kept back" in lrn.step() and not c["discover"]
@@ -274,10 +287,10 @@ def test_the_monthly_credit_cap_and_the_account_reserve_stop_the_spending():
 def test_a_failing_foreplay_call_or_usage_check_pauses_and_spends_nothing():
     lrn, store, _, c = make([goal()], [])
     lrn.ads_usage = lambda: (_ for _ in ()).throw(net.HttpError(500, "down"))
-    assert lrn.step().startswith("paused 30 min: could not check Foreplay credits") and not store.credits
+    assert lrn.step().startswith("ads paused 30 min: could not check Foreplay credits") and not store.credits
     lrn, store, _, c = make([goal()], [])
     lrn.ads_discover = lambda *a, **k: (_ for _ in ()).throw(net.HttpError(429, "slow"))
-    assert lrn.step().startswith("paused 30 min: Foreplay call failed") and not store.credits and store.goals[0]["status"] == "open"
+    assert lrn.step().startswith("ads paused 30 min: Foreplay call failed") and not store.credits and store.goals[0]["status"] == "open"
 
 
 def test_a_failed_analysis_keeps_the_paid_page_and_retries_it_without_fetching_again():
@@ -291,9 +304,9 @@ def test_a_failed_analysis_keeps_the_paid_page_and_retries_it_without_fetching_a
             raise llm.LLMError("cut off")
         return good(prompt)
     lrn._analyse = flaky
-    assert lrn.step().startswith("paused 10 min: ad analysis failed")
+    assert lrn.step().startswith("ads paused 10 min: ad analysis failed")
     assert len(store.goals[0]["result"]["pending"]) == 1 and len(c["discover"]) == 1
-    lrn.paused_until = 0
+    lrn.ads_paused_until = 0
     assert lrn.step().startswith("studied 1 of 1") and len(c["discover"]) == 1 and hub.get("example", "ref-fp-a1")
     assert "pending" not in store.goals[0]["result"]
 
@@ -303,7 +316,7 @@ def test_three_failed_analyses_drop_the_page_and_a_budget_stop_keeps_it():
     lrn._analyse = lambda prompt: (_ for _ in ()).throw(llm.LLMError("bad"))
     for _ in range(2):
         assert "ad analysis failed" in lrn.step()
-        lrn.paused_until = 0
+        lrn.ads_paused_until = 0
     assert lrn.step().startswith("gave up on 1 ads") and "pending" not in store.goals[0]["result"]
     lrn, store, hub, c = make([goal()], [([foreplay.normalise(raw_ad("a1"))], "c1")])
     lrn._analyse = lambda prompt: (_ for _ in ()).throw(BudgetExceeded("no room"))
@@ -334,3 +347,41 @@ def test_a_failed_boot_self_test_keeps_the_ads_goals_off():
     lrn, store, hub, c = make([goal()], [([foreplay.normalise(raw_ad("a1"))], "c")])
     lrn.ads_broken = True
     assert lrn.step().startswith("paused 30 min: nothing to learn") and not c["discover"] and store.goals[0]["status"] == "open"
+
+
+def test_the_paid_page_is_saved_before_analysis_so_a_crash_or_unexpected_error_cannot_lose_or_repay_it():
+    lrn, store, hub, c = make([goal()], [([foreplay.normalise(raw_ad("a1"))], "c1")])
+    lrn._analyse = lambda prompt: (_ for _ in ()).throw(KeyboardInterrupt())       # the worker is told to stop mid-analysis
+    try:
+        lrn.step()
+    except KeyboardInterrupt:
+        pass
+    g = store.goals[0]
+    assert g["saved"]["cursor"] == "c1" and len(g["saved"]["pending"]) == 1          # saved at the moment of paying
+    assert g["status"] == "open" and len(g["result"]["pending"]) == 1                # and kept when the goal is put back
+    lrn2, store2, hub2, c2 = make([g], [])                                            # a fresh learner resumes without fetching
+    lrn2._analyse = analyst(c2)
+    g["status"] = "open"
+    assert lrn2.step().startswith("studied 1 of 1") and not c2["discover"]
+
+
+def test_an_exhausted_ads_budget_does_not_starve_the_video_goals_behind_it(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    video = {"id": 2, "goal": "Animated captions", "kind": "tutorial", "queries": ["q"], "attempts": 0, "result": {}, "status": "open"}
+    lrn, store, hub, c = make([goal(), video], [], cfg={"learn": {"ads_monthly_credits": 5}})
+    lrn.search = lambda *a, **k: []
+    assert lrn.step().startswith("ads paused") and not lrn.ads_on() and lrn.paused_until == 0   # only ads are switched off
+    assert lrn.step().startswith("searched 'q'") and store.goals[1]["status"] == "open"          # the video goal is next in line
+def test_ad_notes_use_the_slug_the_hub_stores_and_mixed_case_ids_are_found_again():
+    assert hub_ads.slug("AbC_123") == "ref-fp-abc-123"
+    hub = FakeHub()
+    ad = foreplay.normalise(raw_ad("AbC_123"))
+    notes, _ = hub_ads.validate({"ads": [analysis("AbC_123")]}, {"AbC_123": ad})
+    hub_ads.ingest(hub, ad, notes["AbC_123"], "goal")
+    assert ("example", hub_ads.slug("AbC_123")) in hub.items
+
+
+def test_runs_of_fence_characters_cannot_close_the_data_block():
+    row = hub_ads.prompt_ads([{"id": "x", "words": "a >>>>> b <<<<<< c ADS>>>"}])[0]
+    assert ">>>" not in row["words"] and "<<<" not in row["words"]

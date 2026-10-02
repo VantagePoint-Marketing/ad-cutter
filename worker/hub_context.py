@@ -21,6 +21,35 @@ def one_line(text: str, limit: int) -> str:
     return flat[:limit].rstrip() + ("…" if len(flat) > limit else "")
 
 
+REF_CHARS = 1500
+
+
+def fetch_references(hub, request: str = "", limit: int = 3) -> tuple[str, list[int]]:
+    """(text, note ids) for the finished-ad check: a few reference examples (ads and short videos that are performing) the
+    ad can be compared with. Never raises; ("", []) when there are none."""
+    try:
+        query = one_line(request, 300)
+        seen: dict[int, dict] = {}
+        for q in ([query] if query else []) + [CORE_QUERY]:
+            for it in hub.search(q, kinds=["example"], limit=limit):
+                seen.setdefault(it["id"], it)
+        lines, ids, used = [], [], 0
+        for it in list(seen.values())[:limit]:
+            meta = it.get("meta") or {}
+            days = meta.get("running_days")
+            where = f"an ad that has run {days} days" if days else "a short video that performs well"
+            line = f"- \"{one_line(it['title'], 80)}\" ({where}): {one_line(it['body'], 380)}"
+            if used + len(line) + 1 > REF_CHARS:
+                break
+            lines.append(line)
+            ids.append(it["id"])
+            used += len(line) + 1
+        return "\n".join(lines), ids
+    except Exception as err:   # noqa: BLE001 - the check just has nothing to compare with
+        log.warning("hub: could not read references (%s)", type(err).__name__)
+        return "", []
+
+
 def fetch(hub, request: str = "", max_chars: int = MAX_CHARS) -> str:
     try:
         query = one_line(request, 300)

@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r /app/web/requirements.txt
 COPY worker/storage.py /app/worker/storage.py
 COPY worker/config.json /app/worker/config.json
 COPY worker/models.py /app/worker/models.py
+COPY worker/hub.py /app/worker/hub.py
+COPY worker/hub_export.py /app/worker/hub_export.py
 COPY web /app/web
 RUN chown -R root:root /app && chmod -R a-w /app
 USER app

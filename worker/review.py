@@ -49,7 +49,7 @@ def make_proxy(video: Path, dest: Path) -> Path:
     return dest
 
 
-def build_prompt(entry: dict, brief: str) -> str:
+def build_prompt(entry: dict, brief: str, references: str = "") -> str:
     ad, v = entry["ad"], entry.get("verify") or {}
     callouts = "; ".join(quote(c.get("text", "") if isinstance(c, dict) else c, 60) for c in ad.get("callouts", []))
     match = v.get("match")
@@ -59,7 +59,8 @@ def build_prompt(entry: dict, brief: str) -> str:
         funnel_stage=quote(ad.get("funnel_stage"), 40) or "not stated", angle=quote(ad.get("angle"), 300) or "not stated",
         headline=quote(ad.get("headline"), 120), callouts=callouts or "none",
         spoken=quote(entry.get("spoken"), 1500) or "(not available)",
-        match=f"{match:.2f}" if isinstance(match, (int, float)) else "n/a")
+        match=f"{match:.2f}" if isinstance(match, (int, float)) else "n/a",
+        references=quote(references, 1600).replace("<<<", " ").replace(">>>", " ") or "(Nothing was provided.)")
 
 
 def validate(raw, seconds: float) -> dict | None:
@@ -86,7 +87,8 @@ def validate(raw, seconds: float) -> dict | None:
                          "what": quote(p["what"], MAX_TEXT), "fix": quote(p.get("fix"), MAX_TEXT)})
         if len(problems) == MAX_PROBLEMS:
             break
-    return {"scores": scores, "problems": problems, "verdict": quote(raw.get("verdict"), 400)}
+    return {"scores": scores, "problems": problems, "verdict": quote(raw.get("verdict"), 400),
+            "vs_references": quote(raw.get("vs_references"), 300)}
 
 
 def needs_a_look(review: dict, speech_match) -> bool:
@@ -100,7 +102,7 @@ def needs_a_look(review: dict, speech_match) -> bool:
 
 
 def review_ads(cfg: dict, client: llm.OpenRouter, *, brief: str, entries: list[dict], work: Path,
-               progress=lambda stage, detail="": None) -> tuple[dict[int, dict], list[str], float]:
+               progress=lambda stage, detail="": None, references: str = "") -> tuple[dict[int, dict], list[str], float]:
     """Check every entry that has a rendered `video`. Returns ({ad number: review}, notes for the editor, cost).
     Never raises for a problem with the check itself; the Stop signal and other BaseExceptions pass through."""
     reviews: dict[int, dict] = {}
@@ -117,7 +119,7 @@ def review_ads(cfg: dict, client: llm.OpenRouter, *, brief: str, entries: list[d
             if size > MAX_PROXY_BYTES:
                 notes.append(f"Self-check: ad {k} was not checked (its small copy is {size / 1e6:.0f} MB).")
                 continue
-            prompt = build_prompt(e, brief)
+            prompt = build_prompt(e, brief, references)
             tokens = llm.video_tokens(float(e.get("len") or 0)) + len(prompt) // 3
             # the worst this one call can cost (one attempt, no retry): never start a call that could pass the cap
             est = llm.estimate_cost(cfg["plan_model"], tokens, MAX_OUTPUT_TOKENS)

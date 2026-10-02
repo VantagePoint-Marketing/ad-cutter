@@ -148,6 +148,12 @@ class Store:
             row = c.execute(f"select used from api_quota where api = %s and period = {library.PACIFIC_DAY}", (api,)).fetchone()
         return float(row[0]) if row else 0.0
 
+    def save_result(self, goal_id: int, result: dict) -> None:
+        """Save a goal's progress while it is still being worked on (keeps its lock), so a crash cannot lose paid-for ads."""
+        with self.connect() as c:
+            c.execute("update kb_goals set result = %s, heartbeat_at = now(), updated_at = now() where id = %s",
+                      (json.dumps(result), goal_id))
+
     def known_ad(self, ad_id: str) -> bool:
         with self.connect() as c:
             return bool(c.execute("select 1 from kb_items where kind = 'example' and slug = %s", (hub_ads.slug(ad_id),)).fetchone())
@@ -191,7 +197,7 @@ class Learner:
     def __init__(self, connect, cfg: dict, hub: Hub | None = None, worker_id: str = "learner", client: GeminiFree | None = None,
                  store: Store | None = None, youtube_search=youtube.search, youtube_videos=youtube.videos, clock=time.time,
                  ads_usage=foreplay.usage, ads_discover=foreplay.discover, analyse=None):
-        self.cfg, self.connect, self.ads_broken = cfg, connect, False
+        self.cfg, self.connect, self.ads_broken, self.ads_paused_until = cfg, connect, False, 0.0
         self.ads_usage, self.ads_discover, self._analyse = ads_usage, ads_discover, analyse
         self.s, self.lib = settings(cfg), library.settings(cfg)
         self.hub, self.store = hub or Hub(connect), store or Store(connect)
@@ -201,6 +207,14 @@ class Learner:
 
     def ready(self) -> bool:
         return self.now() >= self.paused_until
+
+    def ads_on(self) -> bool:
+        return not self.ads_broken and self.now() >= self.ads_paused_until
+
+    def pause_ads(self, seconds: float, reason: str) -> str:
+        """Stop offering ad goals for a while without stopping the video goals behind them in the queue."""
+        self.ads_paused_until = self.now() + seconds
+        return f"ads paused {seconds / 60:.0f} min: {reason}"
 
     def pause(self, seconds: float, reason: str) -> str:
         self.paused_until = self.now() + seconds
@@ -212,7 +226,7 @@ class Learner:
         """Do one thing. Never raises an Exception (it pauses instead); a shutdown signal puts the goal back and propagates."""
         try:
             self.store.sweep_stale(self.s["stale_minutes"])
-            goal = self.store.claim(self.worker_id, [k for k in kinds_available() if k != "ads" or not self.ads_broken])
+            goal = self.store.claim(self.worker_id, [k for k in kinds_available() if k != "ads" or self.ads_on()])
         except Exception as err:                       # noqa: BLE001 - a database blip: try later
             log.exception("learner: could not pick the next goal")
             return self.pause(600, f"{type(err).__name__}: {err}")
@@ -282,25 +296,28 @@ class Learner:
             month = datetime.now(timezone.utc).strftime("%Y-%m")
             want = s["ads_per_call"]
             if self.store.credits_used(month) + want > s["ads_monthly_credits"]:
-                return self.pause(12 * 3600, f"this month's {s['ads_monthly_credits']} Foreplay credits are used"), "open", None
+                return self.pause_ads(12 * 3600, f"this month's {s['ads_monthly_credits']} Foreplay credits are used"), "open", None
             try:
                 left = self.ads_usage()["remaining"]
             except Exception as err:                   # noqa: BLE001 - key, network or outage: try later, spend nothing
-                return self.pause(1800, f"could not check Foreplay credits ({str(err)[:120]})"), "open", None
+                return self.pause_ads(1800, f"could not check Foreplay credits ({str(err)[:120]})"), "open", None
             if left - want < s["ads_reserve_credits"]:
-                return self.pause(12 * 3600, f"Foreplay has {left} credits left; {s['ads_reserve_credits']} are kept back"), "open", None
+                return self.pause_ads(12 * 3600, f"Foreplay has {left} credits left; {s['ads_reserve_credits']} are kept back"), "open", None
             query = (goal["queries"] or [goal["goal"]])[0]
             try:
                 ads, cursor = self.ads_discover(query, limit=want, cursor=result.get("cursor"),
                                                 running_duration_min_days=s["ads_min_running_days"])
             except Exception as err:                   # noqa: BLE001 - a failed call returns no ads and costs no credits
-                return self.pause(1800, f"Foreplay call failed ({str(err)[:120]})"), "open", None
+                return self.pause_ads(1800, f"Foreplay call failed ({str(err)[:120]})"), "open", None
             self.store.credits_add(month, len(ads))    # recorded before anything else can fail
             result["pages"] += 1
             result["cursor"], result["exhausted"] = cursor, cursor is None
             known = {a["id"] for a in ads if self.store.known_ad(a["id"])}
             pending = [a for a in ads if a["id"] not in known and hub_ads.usable(a, s["ads_min_running_days"])]
+            result["pending"] = pending                # paid for: kept until analysed, and saved now in case the worker stops
+            self.store.save_result(goal["id"], result)
             if not pending:
+                result.pop("pending")
                 return f"Foreplay page {result['pages']}: {len(ads)} ads, none new and usable", "open", None
         ids = {a["id"]: a for a in pending}
         prompt = (gemini_free.PROMPTS / "analyse_ads.md").read_text(encoding="utf-8").format(
@@ -308,16 +325,14 @@ class Learner:
         try:
             raw, cost = self.analyse(prompt)
         except BudgetExceeded as err:
-            result["pending"] = pending
-            return self.pause(3600, f"no budget to analyse ads ({str(err)[:120]})"), "open", None
+            return self.pause_ads(3600, f"no budget to analyse ads ({str(err)[:120]})"), "open", None
         except llm.LLMError as err:
             result["failures"] = result.get("failures", 0) + 1
             if result["failures"] >= 3:
                 result.pop("pending", None)
                 result["failures"] = 0
                 return f"gave up on {len(pending)} ads after three failed analyses ({str(err)[:120]})", "open", None
-            result["pending"] = pending
-            return self.pause(600, f"ad analysis failed ({str(err)[:120]})"), "open", None
+            return self.pause_ads(600, f"ad analysis failed ({str(err)[:120]})"), "open", None
         result["cost_usd"] = round(float(result["cost_usd"]) + cost, 4)
         notes, problems = hub_ads.validate(raw, ids)
         for ad_id, note in notes.items():

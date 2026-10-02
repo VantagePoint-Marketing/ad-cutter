@@ -630,3 +630,130 @@ def test_only_the_logo_can_be_fetched_from_assets(client):
     for name in ("app.py", "..%2Fapp.py", "index.html", "vp-mark.PNG", "%2e%2e%2fapp.py"):
         assert client.get(f"/{TOKEN}/assets/{name}").status_code == 404
     assert client.get("/wrong-token-1234567/assets/vp-mark.png").status_code == 404
+
+
+# ---------------------------------------------------------------- the knowledge hub
+
+class FakeHub:
+    def __init__(self):
+        self.items = {("technique", "punch-in"): {"id": 1, "kind": "technique", "slug": "punch-in", "title": "Punch-in", "body": "Zoom on the key word.",
+                                                  "tags": ["motion"], "meta": {"url": "https://example.com/x"}, "origin": "seed", "status": "active",
+                                                  "confidence": None},
+                      ("example", "ref-fp-1"): {"id": 2, "kind": "example", "slug": "ref-fp-1", "title": "A long runner", "body": "Hook...",
+                                                "tags": ["ads"], "meta": {"running_days": 80}, "origin": "foreplay", "status": "active", "confidence": None},
+                      ("rule", "old"): {"id": 3, "kind": "rule", "slug": "old", "title": "Old", "body": "", "tags": [], "meta": {}, "origin": "seed",
+                                        "status": "retired", "confidence": None}}
+        self.goal_rows, self.state = [], {}
+
+    def counts(self):
+        return {"technique": 1, "example": 1}
+
+    def search(self, query="", kinds=None, tags=None, limit=8, snippet=400):
+        hits = [dict(v, snippet=v["body"][:snippet]) for v in self.items.values() if v["status"] == "active" and v["kind"] in (kinds or [v["kind"]])
+                and query.lower() in (v["title"] + v["body"]).lower()]
+        return hits[:limit]
+
+    def get(self, kind, slug):
+        return self.items.get((kind, slug))
+
+    def neighbors(self, item_id):
+        return [{"direction": "out", "rel": "example_of", "note": "n", "id": 1, "kind": "technique", "slug": "punch-in", "title": "Punch-in", "tags": []}] if item_id == 2 else []
+
+    def evidence(self, item_id, limit=50):
+        return []
+
+    def everything(self):
+        items = [v for v in self.items.values() if v["status"] == "active"]
+        return items, [(2, 1, "example_of", "n")]
+
+    def goals(self, limit=60):
+        return list(self.goal_rows)
+
+    def add_goal(self, goal, kind="tutorial", queries=None, asked_by="agent"):
+        if any(g["goal"].lower() == goal.lower() for g in self.goal_rows):
+            return None
+        self.goal_rows.append({"id": len(self.goal_rows) + 1, "goal": goal, "kind": kind, "status": "open", "reason": None, "asked_by": asked_by,
+                               "attempts": 0, "added": {}, "cost_usd": None, "at": "2026-10-02T00:00:00+00:00", "queries": queries})
+        return len(self.goal_rows)
+
+    def skip_goal(self, goal_id):
+        row = next((g for g in self.goal_rows if g["id"] == goal_id and g["status"] != "working"), None)
+        if row:
+            row["status"] = "skipped"
+        return bool(row)
+
+    def get_state(self, key):
+        return self.state.get(key, {})
+
+
+@pytest.fixture
+def hubbed(client, monkeypatch):
+    hub = FakeHub()
+    monkeypatch.setattr(web, "knowledge_hub", lambda: hub)
+    client.hub = hub
+    return client
+
+
+def test_the_hub_summary_lists_counts_goals_newest_notes_and_credits(hubbed):
+    hubbed.hub.add_goal("how to make captions pop", "tutorial", ["x"], asked_by="staff")
+    month = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m")
+    hubbed.hub.state[f"foreplay-credits-{month}"] = {"used": 30}
+    d = hubbed.get(f"/{TOKEN}/api/knowledge").json()
+    assert d["total"] == 2 and d["counts"] == {"technique": 1, "example": 1} and d["foreplay_credits_used"] == 30
+    assert [g["goal"] for g in d["goals"]] == ["how to make captions pop"] and {n["slug"] for n in d["recent"]} == {"punch-in", "ref-fp-1"}
+    assert hubbed.get("/wrong-token-0123456789/api/knowledge").status_code == 404
+
+
+def test_search_filters_by_kind_and_never_shows_retired_notes(hubbed):
+    notes = hubbed.get(f"/{TOKEN}/api/knowledge/search?q=zoom").json()["notes"]
+    assert [n["slug"] for n in notes] == ["punch-in"] and notes[0]["url"] == "https://example.com/x"
+    assert [n["slug"] for n in hubbed.get(f"/{TOKEN}/api/knowledge/search?kind=example").json()["notes"]] == ["ref-fp-1"]
+    assert hubbed.get(f"/{TOKEN}/api/knowledge/search?q=old").json()["notes"] == []
+    assert len(hubbed.get(f"/{TOKEN}/api/knowledge/search?kind=nonsense").json()["notes"]) == 2         # an unknown kind is ignored
+
+
+def test_a_note_comes_with_its_links_and_retired_or_missing_notes_are_404(hubbed):
+    d = hubbed.get(f"/{TOKEN}/api/knowledge/note?kind=example&slug=ref-fp-1").json()
+    assert d["body"] == "Hook..." and d["running_days"] == 80 and d["links"][0]["slug"] == "punch-in"
+    for q in ("kind=rule&slug=old", "kind=technique&slug=nope", "kind=bogus&slug=punch-in"):
+        assert hubbed.get(f"/{TOKEN}/api/knowledge/note?{q}").status_code == 404
+
+
+def test_the_hub_downloads_as_a_vault_zip_with_links(hubbed):
+    import io
+    import zipfile
+    r = hubbed.get(f"/{TOKEN}/api/knowledge/export")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip" and "attachment" in r.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert "technique/punch-in.md" in z.namelist() and "[[technique/punch-in|Punch-in]]" in z.read("example/ref-fp-1.md").decode()
+
+
+def test_teaching_it_something_cleans_the_sentence_and_refuses_odd_input(hubbed):
+    r = hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": "  how to make <b>captions</b>\n pop!!  ", "kind": "ads"})
+    assert r.status_code == 200 and r.json()["goal"] == "how to make b captions /b pop"
+    row = hubbed.hub.goal_rows[0]
+    assert row["kind"] == "ads" and row["asked_by"] == "staff" and row["queries"] == ["how to make b captions /b pop"]
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": "how to make b captions /b pop"}).status_code == 409   # same goal
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": "hi!!"}).status_code == 400
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": "a fine goal here", "kind": "evil"}).status_code == 422
+
+
+def test_only_so_many_goals_can_wait_and_a_goal_can_be_removed_unless_it_is_running(hubbed):
+    for i in range(web.OPEN_GOALS_MAX):
+        assert hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": f"learn thing number {i}"}).status_code == 200
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals", json={"goal": "one more thing to learn"}).status_code == 409
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals/1/remove").status_code == 200
+    hubbed.hub.goal_rows[1]["status"] = "working"
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals/2/remove").status_code == 409
+    assert hubbed.post(f"/{TOKEN}/api/knowledge/goals/0/remove").status_code == 422
+
+
+def test_before_the_hub_tables_exist_the_page_gets_a_plain_503(hubbed, monkeypatch):
+    import psycopg
+
+    class Missing:
+        def counts(self):
+            raise psycopg.errors.UndefinedTable("kb_items")
+    monkeypatch.setattr(web, "knowledge_hub", lambda: Missing())
+    r = hubbed.get(f"/{TOKEN}/api/knowledge")
+    assert r.status_code == 503 and "not set up" in r.json()["detail"]

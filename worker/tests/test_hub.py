@@ -394,3 +394,39 @@ def test_the_job_gives_the_planner_what_the_hub_knows_for_the_typed_request(monk
     assert jobs.run_job(conn, bucket, job(options=opts), cfg) == "ready"
     assert ac.run_pipeline.kwargs["knowledge"] == "- Technique, Hook: x"
     assert asked == ["lead with lag"]                                       # what the person typed, not the added sentence
+
+
+# ---------------------------------------------------------------- references for the finished-ad check
+
+def test_references_are_a_few_examples_with_their_ids_and_a_note_of_how_long_an_ad_ran():
+    hub = SearchHub({"example": [note(7, "example", 'A "long" runner', "**Hook:** blunt question " * 40, running_days=80),
+                                 note(8, "example", "A short", "Fast cuts.")]})
+    text, ids = hub_context.fetch_references(hub, "ads about lag")
+    assert ids == [7, 8] and "an ad that has run 80 days" in text and "a short video that performs well" in text
+    assert len(text) <= hub_context.REF_CHARS and '"long"' not in text and "\n\n" not in text
+    assert hub_context.fetch_references(SearchHub({}), "x") == ("", [])
+    assert hub_context.fetch_references(object(), "x") == ("", [])                           # a broken hub never fails a job
+
+
+def test_each_checked_ad_leaves_a_comparison_note_on_the_references_it_was_set_against():
+    import jobs
+
+    class Rec:
+        def __init__(self, connect):
+            Rec.seen = []
+
+        def add_evidence(self, item_id, kind, value, job_id=None, ad_k=None):
+            Rec.seen.append((item_id, kind, value, job_id, ad_k))
+    orig, jobs.Hub = jobs.Hub, Rec
+    try:
+        review = {"scores": {"hook": 4, "cuts": 2}, "vs_references": "Slower than the references."}
+        jobs.record_comparisons(None, "j1", [7, 8], [{"k": 1, "review": review}, {"k": 2, "review": None}])
+    finally:
+        jobs.Hub = orig
+    assert [(s[0], s[1], s[3], s[4]) for s in Rec.seen] == [(7, "compare", "j1", 1), (8, "compare", "j1", 1)]
+    assert Rec.seen[0][2] == {"avg": 3.0, "hook": 4, "vs": "Slower than the references."}
+    jobs.Hub = lambda c: (_ for _ in ()).throw(RuntimeError("db down"))
+    try:
+        jobs.record_comparisons(None, "j1", [7], [{"k": 1, "review": review}])               # swallowed
+    finally:
+        jobs.Hub = orig

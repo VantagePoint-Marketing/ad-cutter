@@ -31,11 +31,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Path as UrlPath
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "worker"))      # storage.py is shared with the worker (copied into the image)
+import hub as hubmod  # noqa: E402
+import hub_export  # noqa: E402
 import models  # noqa: E402
 from storage import MAX_CLIPS, Bucket  # noqa: E402
 
@@ -52,6 +54,9 @@ RECENT = 30
 BUDGET_KEY = "video-agent"               # the worker's ledger name for the staff editing key (worker/jobs.py KEY_NAME)
 ADS_CHOICES, SECONDS_CHOICES = (1, 3, 5), (20, 40, 60)       # the page's "How many ads?" and "How long?"
 MAX_NAME, CTA_LINE_MAX, CTA_BUTTON_MAX = 40, 70, 28          # a typed name; end-screen message and button wording
+GOAL_MIN, GOAL_MAX, OPEN_GOALS_MAX = 8, 200, 25    # a typed learning goal; how many can wait at once
+GOAL_KINDS = ("tutorial", "reference", "ads")
+GOAL_CHARS = re.compile(r"[^A-Za-z0-9 ,.'():;/&+-]")   # the characters worker/learner.py accepts in a search or focus sentence
 MAX_NOTE = 1000                          # characters of a feedback note (migration 004 enforces the same)
 FEEDBACK_PER_JOB = 60                    # clicks one job accepts: the page's buttons can be changed, not spammed
 LIBRARY_REMOVED = "removed from the foundation list"     # worker/library.py REMOVED
@@ -399,6 +404,103 @@ def save_feedback(job_id: uuid.UUID, body: Feedback, k: int = UrlPath(ge=1, le=2
     return {"k": k, "verdict": body.verdict, "note": note}
 
 
+# ---------------------------------------------------------------- the knowledge hub
+
+def knowledge_hub() -> hubmod.Hub:
+    return hubmod.Hub(connect)
+
+
+def hub_guard(fn):
+    """Run a hub read; before the hub's migration has been applied, say so plainly instead of failing."""
+    import psycopg
+    try:
+        return fn()
+    except psycopg.errors.UndefinedTable:
+        raise HTTPException(503, "The knowledge hub is not set up yet.")
+
+
+def note_view(item: dict) -> dict:
+    meta = item.get("meta") or {}
+    return {"kind": item["kind"], "slug": item["slug"], "title": item["title"], "tags": item["tags"], "origin": item["origin"],
+            "url": meta.get("url") or meta.get("foreplay_url") or "", "running_days": meta.get("running_days"),
+            "snippet": item.get("snippet", "")}
+
+
+@app.get("/{token}/api/knowledge")
+def knowledge(token: str = Depends(link)) -> dict:
+    """The hub at a glance: notes per kind, what the agent is learning, the newest notes, Foreplay credits used this month."""
+    def read():
+        h = knowledge_hub()
+        month = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m")
+        counts = h.counts()
+        return {"counts": counts, "total": sum(counts.values()), "goals": h.goals(60),
+                "recent": [note_view(x) for x in h.search("", limit=8, snippet=160)],
+                "foreplay_credits_used": int(h.get_state(f"foreplay-credits-{month}").get("used", 0))}
+    return hub_guard(read)
+
+
+@app.get("/{token}/api/knowledge/search")
+def knowledge_search(q: str = "", kind: str = "", limit: int = 20, token: str = Depends(link)) -> dict:
+    kinds = [kind] if kind in hubmod.KINDS else []
+    found = hub_guard(lambda: knowledge_hub().search(q[:200], kinds=kinds, limit=max(1, min(limit, 40)), snippet=240))
+    return {"notes": [note_view(x) for x in found]}
+
+
+@app.get("/{token}/api/knowledge/note")
+def knowledge_note(kind: str, slug: str, token: str = Depends(link)) -> dict:
+    """One note in full, with everything linked to it and the evidence about how it did."""
+    def read():
+        h = knowledge_hub()
+        item = h.get(kind, slug) if kind in hubmod.KINDS else None
+        if not item or item["status"] != "active":
+            raise HTTPException(404, "Not found")
+        links_ = [{"direction": n["direction"], "rel": n["rel"], "note": n["note"], "kind": n["kind"], "slug": n["slug"],
+                   "title": n["title"]} for n in h.neighbors(item["id"])]
+        return {**note_view(item), "body": item["body"], "links": links_, "confidence": item["confidence"],
+                "evidence": h.evidence(item["id"], 10)}
+    return hub_guard(read)
+
+
+@app.get("/{token}/api/knowledge/export")
+def knowledge_export(token: str = Depends(link)) -> Response:
+    """The whole hub as an Obsidian vault (a zip of markdown notes with [[links]])."""
+    items, link_rows = hub_guard(lambda: knowledge_hub().everything())
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    return Response(hub_export.vault_zip(items, link_rows), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="ad-cutter-knowledge-{stamp}.zip"', "Cache-Control": "no-store"})
+
+
+class NewGoal(BaseModel):
+    goal: str = Field(max_length=400)
+    kind: Literal["tutorial", "reference", "ads"] = "tutorial"
+
+
+@app.post("/{token}/api/knowledge/goals")
+def add_goal(body: NewGoal, token: str = Depends(link)) -> dict:
+    """Teach it something: a plain sentence the agent will go and learn. Only plain characters get through, because the same
+    words become a YouTube or Foreplay search and nothing about a client's footage should ever be in one."""
+    text = " ".join(GOAL_CHARS.sub(" ", body.goal).split())[:GOAL_MAX]
+    if len(text) < GOAL_MIN:
+        raise HTTPException(400, f"Describe what it should learn in at least {GOAL_MIN} letters.")
+
+    def write():
+        h = knowledge_hub()
+        if sum(1 for g in h.goals(200) if g["status"] == "open") >= OPEN_GOALS_MAX:
+            raise HTTPException(409, "There are already plenty of things waiting to be learned. Let it catch up first.")
+        gid = h.add_goal(text, body.kind, [text[:120]], asked_by="staff")
+        if gid is None:
+            raise HTTPException(409, "It already has that goal.")
+        return {"id": gid, "goal": text, "kind": body.kind}
+    return hub_guard(write)
+
+
+@app.post("/{token}/api/knowledge/goals/{goal_id}/remove")
+def remove_goal(goal_id: int = UrlPath(ge=1), token: str = Depends(link)) -> dict:
+    if not hub_guard(lambda: knowledge_hub().skip_goal(goal_id)):
+        raise HTTPException(409, "That goal is being worked on right now, or no longer exists.")
+    return {"removed": goal_id}
+
+
 @app.get("/{token}/api/library")
 def library(lessons: bool = False, token: str = Depends(link)) -> dict:
     """What the agent has studied: one entry per video, with its kept lessons when `lessons` is true."""
@@ -492,7 +594,7 @@ def public_review(review) -> dict | None:
     if not isinstance(review, dict) or not isinstance(review.get("scores"), dict):
         return None
     return {"scores": review["scores"], "problems": review.get("problems") or [], "verdict": review.get("verdict", ""),
-            "look": bool(review.get("look"))}
+            "vs_references": review.get("vs_references", ""), "look": bool(review.get("look"))}
 
 
 def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:

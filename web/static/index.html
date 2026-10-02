@@ -254,6 +254,15 @@
   .seg button { border: 0; background: none; border-radius: 999px; padding: 6px 18px; font-weight: 800; color: var(--muted); }
   .seg button[aria-pressed="true"] { background: var(--grad); color: #fff; }
   .lib { border-top: 1px solid var(--line); padding: 12px 0; } .lib:first-child { border-top: 0; }
+  .kb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .kb-item { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; color: var(--ink); padding: 12px 6px; border-top: 1px solid var(--line); border-radius: 0; }
+  .kb-item:first-child { border-top: 0; } .kb-item:hover { background: var(--soft); }
+  .kb-item b { display: block; } .kb-item span.hint { display: block; margin-top: 2px; }
+  .kb-note { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); } .kb-note pre { white-space: pre-wrap; font: inherit; margin: 10px 0; }
+  .kb-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; } .kb-links button { border: 0; font: inherit; cursor: pointer; }
+  .kb-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; } .kb-row input[type=text] { flex: 1; min-width: 220px; }
+  .kb-goal { display: flex; gap: 10px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; } .kb-goal:first-child { border-top: 0; }
+  .kb-goal .g { flex: 1; min-width: 200px; }
   ol.lessons { margin: 8px 0 0; padding-left: 20px; font-size: 14px; } ol.lessons li { margin: 8px 0; }
 
   /* ---- first visit */
@@ -299,6 +308,7 @@
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab" role="tab" data-tab="overview">Overview</button>
       <button class="tab" role="tab" data-tab="make">Make ads</button>
+      <button class="tab" role="tab" data-tab="knowledge">Knowledge</button>
       <button class="tab" role="tab" data-tab="settings">Settings</button>
     </nav>
     <button class="who" id="who" title="Change your name"><span class="n" id="whoName"></span><span class="avatar" id="avatar">?</span></button>
@@ -437,6 +447,31 @@
     </div>
   </section>
 
+  <!-- ======================================================= Knowledge -->
+  <section id="v-knowledge" hidden>
+    <div class="set">
+      <h1>Knowledge</h1><p class="sub">Everything the agent has taught itself, in one place: what it learned from videos and ads, how to do each editing technique, and how the pieces connect. It looks things up here when it plans your ads.</p>
+      <div class="card"><h2>What it knows</h2>
+        <p class="hint" id="kbLine">Loading.</p><div class="kb-chips" id="kbChips"></div>
+        <div class="row" style="margin-top:14px"><a class="btn ghost sm" id="kbExport"><svg class="i"><use href="#i-download"/></svg>Download for Obsidian</a></div>
+        <p class="hint" style="margin-top:8px">A zip of notes with links between them. Unzip it and open the folder as a vault in Obsidian.</p>
+      </div>
+      <div class="card"><h2>Look something up</h2>
+        <div class="kb-row"><input type="text" id="kbQ" maxlength="200" placeholder="For example: captions, hook, punch-in, ffmpeg zoom">
+          <div class="seg" id="kbKind" role="group" aria-label="What to show" style="margin-top:0"><button data-k="" aria-pressed="true">All</button><button data-k="technique" aria-pressed="false">Techniques</button><button data-k="example" aria-pressed="false">References</button><button data-k="lesson" aria-pressed="false">Lessons</button></div></div>
+        <div id="kbList" style="margin-top:12px"></div>
+        <div id="kbNote" class="kb-note" hidden></div>
+      </div>
+      <div class="card"><h2>Teach it something</h2><p class="hint">Write what it should get better at. It will go and learn it while no ads are being made, then add what it learns above.</p>
+        <div class="kb-row"><input type="text" id="kbGoal" maxlength="200" placeholder="For example: how to make captions that pop on a phone screen"></div>
+        <div class="kb-row"><div class="seg" id="kbGoalKind" role="group" aria-label="How to learn it" style="margin-top:0"><button data-k="tutorial" aria-pressed="true">Learn the skill</button><button data-k="reference" aria-pressed="false">Find videos working now</button><button data-k="ads" aria-pressed="false">Study ads running now</button></div>
+          <button class="btn sm" id="kbAdd">Add</button></div>
+        <p class="hint" id="kbMsg" style="margin-top:8px"></p>
+      </div>
+      <div class="card"><h2>What it is learning</h2><p class="hint" id="kbCredits"></p><div id="kbGoals" style="margin-top:8px"></div></div>
+    </div>
+  </section>
+
   <!-- ======================================================= Settings -->
   <section id="v-settings" hidden>
     <div class="set">
@@ -448,7 +483,7 @@
       <div class="card"><h2>AI spending</h2><p class="hint">The whole team shares one AI account. New videos pause if this month's AI cost reaches its limit.</p>
         <div id="spend" style="margin-top:12px"></div>
       </div>
-      <div class="card"><h2>Reference videos</h2><p class="hint">Videos about the craft of editing that the AI has watched, and whose lessons it keeps. It studies them while no ads are being made. <strong>Today the lessons are stored and shown here, but they are not yet used when it makes your ads.</strong></p>
+      <div class="card"><h2>Reference videos</h2><p class="hint">Videos about the craft of editing that the AI has watched, and whose lessons it keeps. It studies them while no ads are being made. What it learns also goes into the Knowledge tab, where it looks things up when it plans your ads.</p>
         <p class="hint" id="libLine" style="margin-top:12px">Loading what the agent has studied.</p>
         <button class="btn ghost sm" id="libShow" hidden style="margin-top:10px">Show the lessons</button>
         <div id="lib"></div>
@@ -528,13 +563,15 @@
 
   // ------------------------------------------------------------------ tabs
   let tab = "overview";
+  const TABS = ["overview", "make", "knowledge", "settings"];
   function show(next) {
     tab = next;
-    for (const t of ["overview", "make", "settings"]) $("v-" + t).hidden = t !== next;
+    for (const t of TABS) $("v-" + t).hidden = t !== next;
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === next)));
     store.set("va.tab", next);
     if (next === "overview") loadOverview();
     if (next === "settings") loadSettings();
+    if (next === "knowledge") loadKnowledge();
     if (next !== "make") pauseVideo();
   }
   const running = () => !!watching && (!job || !["ready", "failed", "cancelled"].includes(job.status));      // uploading or being made
@@ -969,7 +1006,7 @@
     const chips = Object.keys(AREA).map((a) => { const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0)); return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`; }).join("");
     const probs = (r.problems || []).map((p) => `<li><span class="hint">${p.at_s != null ? fmtTime(p.at_s) + " · " : ""}${esc(AREA[p.area] || p.area)}</span> ${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
     return `<div class="card check${r.look ? " look" : ""}"><div class="head">${r.look ? icon("warn") + "Worth a look before you run it" : icon("sparkles") + "The AI's own check"}</div><div class="scores">${chips}</div>` +
-      (r.verdict ? `<p class="hint" style="margin-top:8px">${esc(r.verdict)}</p>` : "") + (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
+      (r.verdict ? `<p class="hint" style="margin-top:8px">${esc(r.verdict)}</p>` : "") + (r.vs_references ? `<p class="hint" style="margin-top:6px"><strong>Next to ads that are working:</strong> ${esc(r.vs_references)}</p>` : "") + (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
   }
   function feedbackHtml(jobId, ad) {
     if (!ad.file) return "";
@@ -1027,18 +1064,79 @@
   }
   $("libShow").onclick = () => loadLibrary(true);
 
+  // ------------------------------------------------------------------ knowledge
+  const KB_KIND = { source: "Video or ad", lesson: "Lesson", technique: "Technique", recipe: "How-to", skill: "Skill", rule: "Rule", example: "Reference" };
+  const GOAL_KIND = { tutorial: "Learn the skill", reference: "Videos working now", ads: "Ads running now" };
+  const GOAL_STATUS = { open: ["waiting", "neutral"], working: ["learning now", ""], done: ["done", "ok"], failed: ["could not", "bad"], skipped: ["removed", "neutral"] };
+  let kbKind = "", goalKind = "tutorial", kbTimer = null;
+  const kbNoteRow = (n) => `<button class="kb-item" type="button" data-kind="${esc(n.kind)}" data-slug="${esc(n.slug)}"><b>${esc(n.title)}</b><span class="hint"><span class="badge neutral">${esc(KB_KIND[n.kind] || n.kind)}</span> ${esc(n.snippet || "")}</span></button>`;
+  function bindNotes(box) { box.querySelectorAll("[data-slug]").forEach((b) => b.onclick = () => openNote(b.dataset.kind, b.dataset.slug)); }
+  async function loadKnowledge() {
+    $("kbExport").href = `${BASE}/api/knowledge/export`;
+    try {
+      const d = await api("GET", `${BASE}/api/knowledge`);
+      $("kbLine").textContent = d.total ? `${d.total} notes, linked together.` : "Nothing here yet. The agent fills this in while no ads are being made.";
+      $("kbChips").innerHTML = Object.keys(d.counts).sort().map((k) => `<span class="badge neutral">${esc(d.counts[k])} ${esc((KB_KIND[k] || k).toLowerCase())}${d.counts[k] === 1 ? "" : "s"}</span>`).join("");
+      $("kbCredits").textContent = d.foreplay_credits_used ? `${d.foreplay_credits_used} ad look-ups used this month.` : "";
+      renderGoals(d.goals);
+      if (!$("kbQ").value.trim() && !kbKind) { $("kbList").innerHTML = d.recent.length ? `<p class="cap" style="margin-bottom:4px">Newest</p>` + d.recent.map(kbNoteRow).join("") : ""; bindNotes($("kbList")); }
+    } catch (e) { $("kbLine").textContent = e.message || "The knowledge could not be loaded right now."; }
+  }
+  function renderGoals(goals) {
+    $("kbGoals").innerHTML = goals.length ? goals.map((g) => {
+      const st = GOAL_STATUS[g.status] || [g.status, "neutral"], a = g.added || {};
+      const got = [a.recipes && `${a.recipes} techniques`, a.lessons && `${a.lessons} lessons`, a.examples && `${a.examples} references`].filter(Boolean).join(", ");
+      return `<div class="kb-goal"><span class="badge ${st[1]}">${esc(st[0])}</span><div class="g"><strong style="color:var(--ink)">${esc(g.goal)}</strong><div class="hint">${esc(GOAL_KIND[g.kind] || g.kind)}${got ? " · learned " + esc(got) : ""}${g.reason ? " · " + esc(g.reason) : ""}</div></div>` +
+        (g.status === "working" || g.status === "skipped" ? "" : `<button class="btn plain sm" data-rm="${esc(g.id)}">Remove</button>`) + `</div>`;
+    }).join("") : `<p class="hint">Nothing yet.</p>`;
+    $("kbGoals").querySelectorAll("[data-rm]").forEach((b) => b.onclick = async () => { b.disabled = true; try { await api("POST", `${BASE}/api/knowledge/goals/${b.dataset.rm}/remove`); } catch (e) { $("kbMsg").textContent = e.message; } loadKnowledge(); });
+  }
+  async function searchKnowledge() {
+    const q = $("kbQ").value.trim();
+    if (!q && !kbKind) return loadKnowledge();
+    try {
+      const d = await api("GET", `${BASE}/api/knowledge/search?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kbKind)}`);
+      $("kbList").innerHTML = d.notes.length ? d.notes.map(kbNoteRow).join("") : `<p class="hint">Nothing matches that yet.</p>`;
+      bindNotes($("kbList"));
+    } catch (e) { $("kbList").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+  async function openNote(kind, slug) {
+    const box = $("kbNote");
+    box.hidden = false;
+    try {
+      const n = await api("GET", `${BASE}/api/knowledge/note?kind=${encodeURIComponent(kind)}&slug=${encodeURIComponent(slug)}`);
+      const rel = (l) => ({ part_of: "part of", taught_by: "taught in", implements: "how to do", uses: "uses", derived_from: "from", example_of: "example of", related: "related", supports: "supports", contradicts: "disagrees with" }[l.rel] || l.rel);
+      box.innerHTML = `<div class="row" style="align-items:baseline"><h2 style="margin:0">${esc(n.title)}</h2><span class="badge neutral">${esc(KB_KIND[n.kind] || n.kind)}</span></div>` +
+        `<pre>${esc(n.body)}</pre>` + (n.url ? `<p><a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">Open the source</a></p>` : "") +
+        (n.links.length ? `<p class="cap">Linked notes</p><div class="kb-links">${n.links.map((l) => `<button class="badge" type="button" data-kind="${esc(l.kind)}" data-slug="${esc(l.slug)}" title="${esc(l.note)}">${esc(rel(l))}: ${esc(l.title)}</button>`).join("")}</div>` : "");
+      bindNotes(box);
+      box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+  $("kbQ").oninput = () => { clearTimeout(kbTimer); kbTimer = setTimeout(searchKnowledge, 300); };
+  $("kbKind").querySelectorAll("button").forEach((b) => b.onclick = () => { kbKind = b.dataset.k; $("kbKind").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); searchKnowledge(); });
+  $("kbGoalKind").querySelectorAll("button").forEach((b) => b.onclick = () => { goalKind = b.dataset.k; $("kbGoalKind").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); });
+  $("kbAdd").onclick = async () => {
+    const goal = $("kbGoal").value.trim();
+    if (!goal) { $("kbMsg").textContent = "Write what it should learn first."; return; }
+    $("kbAdd").disabled = true;
+    try { await api("POST", `${BASE}/api/knowledge/goals`, { goal, kind: goalKind }); $("kbGoal").value = ""; $("kbMsg").textContent = "Added. It will start on it when no ads are being made."; loadKnowledge(); }
+    catch (e) { $("kbMsg").textContent = e.message; }
+    $("kbAdd").disabled = false;
+  };
+
   // ------------------------------------------------------------------ start up
   renderChoices(); renderIdeas(); showName(); updateForm();
   if (!store.get("va.asked") && !name) askName();
   window.addEventListener("hashchange", () => {
     const h = location.hash.slice(1);
     if (UUID.test(h) && h !== watching) { show("make"); watch(h); }
-    else if (["overview", "make", "settings"].includes(h) && h !== tab) show(h);
+    else if (TABS.includes(h) && h !== tab) show(h);
   });
   const h0 = location.hash.slice(1);
   loadOverview();                              // also fills the end-screen defaults
   if (UUID.test(h0)) { show("make"); watch(h0); }
-  else show(["overview", "make", "settings"].includes(h0) ? h0 : "overview");
+  else show(TABS.includes(h0) ? h0 : "overview");
 })();
 </script>
 </body>
