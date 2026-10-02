@@ -1003,7 +1003,7 @@
   function reviewHtml(ad) {
     const r = ad.review;
     if (!r || !r.scores) return "";
-    const chips = Object.keys(AREA).map((a) => { const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0)); return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`; }).join("");
+    const chips = Object.keys(AREA).filter((a) => r.scores[a] != null).map((a) => { const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0)); return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`; }).join("");
     const probs = (r.problems || []).map((p) => `<li><span class="hint">${p.at_s != null ? fmtTime(p.at_s) + " · " : ""}${esc(AREA[p.area] || p.area)}</span> ${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
     return `<div class="card check${r.look ? " look" : ""}"><div class="head">${r.look ? icon("warn") + "Worth a look before you run it" : icon("sparkles") + "The AI's own check"}</div><div class="scores">${chips}</div>` +
       (r.verdict ? `<p class="hint" style="margin-top:8px">${esc(r.verdict)}</p>` : "") + (r.vs_references ? `<p class="hint" style="margin-top:6px"><strong>Next to ads that are working:</strong> ${esc(r.vs_references)}</p>` : "") + (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;

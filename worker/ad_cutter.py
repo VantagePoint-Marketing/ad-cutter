@@ -823,7 +823,7 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
         if a is not None and b is not None:
             spans.append((a, b, c["text"]))
     design = ad.get("design")
-    cards = design_kit.place_cards(design["cards"], card_timing, place_callouts(spans, body_len), body_len) if design else []
+    cards = design_kit.place_cards(design["cards"], card_timing, body_len) if design else []
     entry["design"] = {**design_kit.summary(design), "observations": (design or {}).get("observations", ""),
                        "why": (design or {}).get("why", ""), "cards_shown": len(cards)}
     (project / "index.html").write_text(compose(ad, caps, place_callouts(spans, body_len), body_len, cfg, design, cards),

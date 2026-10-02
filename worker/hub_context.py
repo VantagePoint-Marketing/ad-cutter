@@ -72,8 +72,8 @@ def fetch(hub, request: str = "", max_chars: int = MAX_CHARS) -> str:
         design_tags = ["typography", "motion", "captions", "graphics", "overlay", "color", "layout", "transition"]
         add(hub.search(query or CORE_QUERY, kinds=["technique", "recipe"], tags=design_tags, limit=4),
             lambda t: f"- Design craft, {t['title']}: {one_line(t['body'], 260)}")
-        add(hub.search(query or CORE_QUERY, kinds=["example"], limit=3), lambda e: f"- Reference that is performing ({e['title'][:70]}): "
-            f"{one_line(e['body'], 300)}" + (f" [an ad that has run {e['meta'].get('running_days')} days]" if (e.get("meta") or {}).get("running_days") else ""))
+        add(hub.search(query or CORE_QUERY, kinds=["example"], limit=3), lambda e: f"- Reference that is performing ({one_line(e['title'], 70)}): "
+            f"{one_line(e['body'], 300)}" + (f" [an ad that has run {one_line(e['meta'].get('running_days'), 6)} days]" if (e.get("meta") or {}).get("running_days") else ""))
         out, used = [], 0
         for line in lines:
             if used + len(line) + 1 > max_chars:

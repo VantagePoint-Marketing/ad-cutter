@@ -139,6 +139,7 @@ def clean_palette(raw) -> tuple[dict, list[str]]:
 SPELLED = {w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
                                            "sixteen seventeen eighteen nineteen twenty".split())}
 TOKEN = re.compile(r"[a-z0-9]+(?:[.'][a-z0-9]+)*")
+CARD_CHARS = re.compile(r"[^A-Za-z0-9 .,'|$%\-]")      # anything else (symbols, emoji, other alphabets) cannot be checked against speech
 CONNECTORS = {"vs", "and", "or", "the", "a", "to", "of", "in", "no"}     # allowed on a card even if not spoken
 
 
@@ -176,7 +177,7 @@ def choice(raw: dict, key: str, allowed, default: str, notes: list[str]) -> str:
 
 def validate_card(c, ad_words: list[tuple[int, str]], segments: list[dict], brand: set[str], spoken: set[str]) -> tuple[dict | None, str]:
     """A card Gemini asked for, cleaned, or (None, why not). `ad_words` are (transcript index, word) pairs of this ad."""
-    if not isinstance(c, dict) or c.get("kind") not in CARD_KINDS:
+    if not isinstance(c, dict) or not isinstance(c.get("kind"), str) or c["kind"] not in CARD_KINDS:
         return None, "unknown card kind"
     a, b = c.get("from"), c.get("to")
     if not all(isinstance(x, int) and not isinstance(x, bool) for x in (a, b)) or a > b:
@@ -192,6 +193,8 @@ def validate_card(c, ad_words: list[tuple[int, str]], segments: list[dict], bran
     text, label = clean_text(c.get("text"), 60), clean_text(c.get("label"), 40)
     if not text:
         return None, "no text"
+    if CARD_CHARS.search(text) or CARD_CHARS.search(label) or (label and not tokens(label)):
+        return None, "only plain letters, numbers and . , ' | $ % - are allowed"
     parts = text.split("|") if kind == "compare" else [text]
     if kind == "compare" and (len(parts) != 2 or not all(p.strip() for p in parts)):
         return None, "a comparison is written 'A|B'"
@@ -486,7 +489,7 @@ def build_cards(cards: list[tuple[float, float, dict]], r: dict) -> tuple[list[s
 
 
 def place_cards(cards: list[dict], timing: Callable[[int, int], tuple[float, float] | None],
-                callouts: list[tuple[float, float, str]], body_len: float) -> list[tuple[float, float, dict]]:
+                body_len: float) -> list[tuple[float, float, dict]]:
     """Card times in the finished ad. `timing(from, to)` gives (start, end) in ad time, or None when the words were cut away.
     Cards that would run into the closing card or each other are dropped."""
     out: list[tuple[float, float, dict]] = []
@@ -496,7 +499,7 @@ def place_cards(cards: list[dict], timing: Callable[[int, int], tuple[float, flo
             continue
         a, b = t
         b = min(max(b, a + CARD_MIN_S), a + CARD_MAX_S, body_len - 0.05)
-        if b - a < 1.0 or (out and a < out[-1][1] + CARD_GAP_S):
+        if b - a < CARD_MIN_S or (out and a < out[-1][1] + CARD_GAP_S):     # build_cards never stretches a card past what is kept here
             continue
         out.append((a, b, c))
     return out
@@ -515,10 +518,15 @@ def summary(design: dict | None) -> dict:
 def history_text(items: list[dict], limit: int = 20) -> str:
     """The recent looks as plain lines, newest first, for the prompt (so Gemini does not fall back on its favourite)."""
     lines = []
+    def known(value, table) -> str:
+        return value if isinstance(value, str) and value in table else "?"
     for s in items[:limit]:
         if isinstance(s, dict) and s.get("caption_style") in CAPTION_STYLES:
-            lines.append(f"- {s['caption_style']} captions, {s.get('headline_style')} headline, {s.get('font')} font, {s.get('motion')} motion, "
-                         f"{s.get('end_style')} end screen, accent {s.get('accent')}" + (f", cards: {', '.join(s['cards'])}" if s.get("cards") else ""))
+            accent = s.get("accent") if isinstance(s.get("accent"), str) and HEX.fullmatch(s["accent"]) else "?"
+            cards = [c for c in (s.get("cards") if isinstance(s.get("cards"), list) else []) if isinstance(c, str) and c in CARD_KINDS]
+            lines.append(f"- {s['caption_style']} captions, {known(s.get('headline_style'), HEADLINE_STYLES)} headline, {known(s.get('font'), FONTS)} font, "
+                         f"{known(s.get('motion'), MOTIONS)} motion, {known(s.get('end_style'), END_STYLES)} end screen, accent {accent}"
+                         + (f", cards: {', '.join(cards)}" if cards else ""))
     return "\n".join(lines) or "(No earlier ads yet.)"
 
 
