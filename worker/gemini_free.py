@@ -30,15 +30,19 @@ from llm import read_key
 API = "https://generativelanguage.googleapis.com/v1beta"
 KEY_ENV = "GEMINI_API_KEY"
 PROMPTS = Path(__file__).resolve().parent / "prompts"
-ALLOWED_PROMPTS = {"watch_craft"}
+# The only prompts this client may send, and the exact fields each takes. Every value is produced by our own code.
+PROMPT_FIELDS = {"watch_craft": {"scope"},
+                 "analyze_reference": {"name", "menu", "zoom_punch", "transitions", "rendered"}}
+ALLOWED_PROMPTS = set(PROMPT_FIELDS)
+PROFILE_NAME = re.compile(r"^[\w.-]{1,60}$")
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MODEL_NAME = re.compile(r"^gemini-[a-z0-9.-]+$")
 
 
 class GeminiFreeError(RuntimeError):
-    def __init__(self, kind: str, message: str, status: int | None = None):
+    def __init__(self, kind: str, message: str, status: int | None = None, body: str = ""):
         super().__init__(message)
-        self.kind, self.status = kind, status
+        self.kind, self.status, self.body = kind, status, body
 
 
 @dataclass
@@ -56,16 +60,19 @@ def watch_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def build_body(model: str, video_id: str, prompt: str, window: tuple[int, int] | None = None) -> dict:
+def build_body(model: str, video_id: str, prompt: str, window: tuple[int, int] | None = None, *,
+               thinking: str = "low", schema: dict | None = None, max_output: int = 8192) -> dict:
     part: dict = {"file_data": {"file_uri": watch_url(video_id)}}
     if window:
         start, end = (int(x) for x in window)
         if not 0 <= start < end:
             raise ValueError(f"bad window {window!r}")
         part["video_metadata"] = {"start_offset": f"{start}s", "end_offset": f"{end}s"}
-    config: dict = {"responseMimeType": "application/json", "temperature": 0.2, "maxOutputTokens": 8192}
+    config: dict = {"responseMimeType": "application/json", "temperature": 0.2, "maxOutputTokens": max_output}
+    if schema:
+        config["responseJsonSchema"] = schema
     if not model.startswith("gemini-2."):          # Gemini 2.x takes a thinking budget, not a level; its default is fine
-        config["thinkingConfig"] = {"thinkingLevel": "low"}
+        config["thinkingConfig"] = {"thinkingLevel": thinking}
     return {"contents": [{"role": "user", "parts": [part, {"text": prompt}]}], "generationConfig": config}
 
 
@@ -99,11 +106,14 @@ def video_tokens(usage: dict) -> int | None:
 
 
 class GeminiFree:
-    def __init__(self, request: Callable = net.request_json, key_env: str = KEY_ENV, timeout: float = 300):
-        self.request, self.key_env, self.timeout = request, key_env, timeout
+    def __init__(self, request: Callable = net.request_json, key_env: str = KEY_ENV, timeout: float = 300,
+                 key: str | None = None):
+        """`key` is for a caller that rotates between several free keys it read from the environment itself
+        (freepool.py); otherwise the one key comes from the `key_env` environment variable."""
+        self.request, self.key_env, self.timeout, self.key = request, key_env, timeout, key
 
     def _headers(self) -> dict:
-        return {"x-goog-api-key": read_key(self.key_env)}
+        return {"x-goog-api-key": self.key or read_key(self.key_env)}
 
     @staticmethod
     def prompt(name: str, fields: dict) -> str:
@@ -111,22 +121,29 @@ class GeminiFree:
         watch). No other text can reach the free tier through this client."""
         if name not in ALLOWED_PROMPTS:
             raise ValueError(f"prompt {name!r} is not one this client may send")
-        if set(fields) != {"scope"} or not isinstance(fields["scope"], str) or len(fields["scope"]) > 500:
+        if name == "watch_craft" and (set(fields) != {"scope"} or not isinstance(fields["scope"], str)
+                                      or len(fields["scope"]) > 500):
             raise ValueError("a watch prompt takes exactly one short field, 'scope'")
+        if set(fields) != PROMPT_FIELDS[name] or not all(isinstance(v, str) and len(v) <= 6000 for v in fields.values()):
+            raise ValueError(f"prompt {name!r} takes exactly the fields {sorted(PROMPT_FIELDS[name])}, as short text")
+        if name == "analyze_reference" and not PROFILE_NAME.fullmatch(fields["name"]):
+            raise ValueError("a profile name is letters, digits, dots, dashes and underscores only")
         return (PROMPTS / f"{name}.md").read_text(encoding="utf-8").format(**fields)
 
     def watch(self, model: str, video_id: str, prompt_name: str, fields: dict,
-              window: tuple[int, int] | None = None) -> Watch:
+              window: tuple[int, int] | None = None, *, thinking: str = "low", schema: dict | None = None,
+              max_output: int = 8192) -> Watch:
         if not MODEL_NAME.fullmatch(model):
             raise ValueError(f"not a Gemini model name: {model!r}")
-        body = build_body(model, video_id, self.prompt(prompt_name, fields), window)
+        body = build_body(model, video_id, self.prompt(prompt_name, fields), window, thinking=thinking,
+                          schema=schema, max_output=max_output)
         started = time.time()
         try:
             data = self.request("POST", f"{API}/models/{model}:generateContent", headers=self._headers(), body=body,
                                 timeout=self.timeout)
         except net.HttpError as err:
             raise GeminiFreeError(classify(err.status, err.body), f"{model}: HTTP {err.status} {error_text(err.body)}",
-                                  err.status) from err
+                                  err.status, err.body) from err
         except net.BlockedHost as err:
             raise GeminiFreeError("bad_request", f"{model}: {err}") from err
         except OSError as err:                    # timeouts and broken connections: try again later

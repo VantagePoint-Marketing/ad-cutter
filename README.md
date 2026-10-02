@@ -36,11 +36,14 @@ How it works:
 - Settings live in `worker/config.json`: brand, CTA, model, default ad count (`ad_count`) and the most ads Gemini
   may plan (`ad_count_max`).
 - Fonts and GSAP are stored in `worker/template/vendor/` (see `SOURCES.md` there), so renders need no internet.
-- **Two model tiers** (`models` in `worker/config.json`): Gemini Pro with high reasoning analyses reference videos
-  once and writes a reusable *style profile* (`python worker/tools/analyze_reference.py <youtube link|file> --name x
-  --minutes 12`; add `--estimate` to see the worst-case cost first, about $1.30 for 15 minutes). Profiles live in
-  `worker/brain/profiles/` and steer every plan. Gemini Flash does the per-job work on raw footage and the post-render
-  self-check, at about a third of Pro's cost. Beat and silence detection are done by code, never by the model.
+- **Two model tiers** (`models` in `worker/config.json`): reference videos are analysed once into a *style profile*
+  (`python worker/tools/analyze_reference.py --list library/references.txt`; `--estimate` shows the plan and spends
+  nothing). **Free first:** the free Gemini keys (`GEMINI_API_KEYS`, comma separated) are rotated on the best free Flash
+  model and step down `reference.free_models` only when a model is out for the day on every key; **paid last:** only when
+  every free option is used up does it use Gemini Pro on OpenRouter, capped by `--max-paid`
+  (`reference.paid_allowance_usd`). Free-tier content can be used by Google, so only public YouTube videos go that way.
+  Profiles live in `worker/brain/profiles/` and steer every plan. Gemini Flash does the per-job work on raw footage and
+  the post-render self-check. Beat and silence detection are done by code, never by the model.
 - Useful local options: `--replan` (ask Gemini again, about $0.10), `--only 2` (rebuild one ad), `--no-render`.
 - Tests: `python -m pytest -q` in `worker/` and in `web/`.
 - Cloud setup (Railway worker + web, private Postgres, media bucket): `.railway/README.md` for the infrastructure

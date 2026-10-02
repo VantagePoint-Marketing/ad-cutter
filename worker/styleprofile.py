@@ -13,9 +13,12 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import design
+import freepool
+import gemini_free
 import llm
 
 HERE = Path(__file__).resolve().parent
@@ -226,3 +229,117 @@ def load_all(directory: Path = PROFILE_DIR, limit: int = MAX_PROMPT_CHARS) -> st
         except (OSError, ValueError):
             continue
     return "\n\n".join(out)[:limit] if out else "(No style profiles yet.)"
+
+
+# ---------------------------------------------------------------- the free route (public videos only)
+
+def video_id(link: str) -> str:
+    return link[-11:]
+
+
+def plan_windows(minutes: float, window: int = 600, max_windows: int = 3) -> list[tuple[int, int] | None]:
+    """The stretches of a video to watch. A video that fits in one window is watched whole (None); a longer one is
+    sampled with up to `max_windows` windows spread evenly from the start, so a 36-minute talk is seen at its
+    beginning, middle and end rather than only its first ten minutes. Windows keep each call inside the free
+    tier's per-minute token limit."""
+    total = int(minutes * 60)
+    if total <= window:
+        return [None]
+    n = max(1, min(max_windows, -(-total // window)))
+    step = (total - window) / (n - 1) if n > 1 else 0
+    return [(int(i * step), int(i * step) + window) for i in range(n)]
+
+
+def _top(lists: list[list[str]], limit: int = 3) -> list[str]:
+    counts = Counter(x for lst in lists for x in lst)
+    first = {x: i for i, x in enumerate(x for lst in lists for x in lst)}
+    return sorted(counts, key=lambda x: (-counts[x], first[x]))[:limit]
+
+
+def merge_profiles(parts: list[dict]) -> dict:
+    """One profile from several windows of the same video: averages for the numbers, the most common names for the
+    styles, rules and avoid-lists pooled without repeats."""
+    if len(parts) == 1:
+        return parts[0]
+    out = json.loads(json.dumps(parts[0]))
+    cads = [p["cadence"] for p in parts]
+    out["cadence"] = {
+        "average_shot_seconds": round(sum(c["average_shot_seconds"] for c in cads) / len(cads), 3),
+        "cut_on_beat": sum(c["cut_on_beat"] for c in cads) * 2 > len(cads),
+        "b_roll_ratio": round(sum(c["b_roll_ratio"] for c in cads) / len(cads), 3),
+        "zoom_punch": Counter(c["zoom_punch"] for c in cads).most_common(1)[0][0],
+        "pace": Counter(c["pace"] for c in cads).most_common(1)[0][0]}
+    for key, fields in (("captions", ("styles", "case", "position")), ("headline", ("styles",)),
+                        ("callouts", ("styles", "motions")), ("transitions", ("types",)),
+                        ("end_screen", ("layouts",))):
+        for f in fields:
+            out[key][f] = _top([p[key][f] for p in parts])
+    for key, limit in (("rules", 12), ("avoid", 8)):
+        seen: list[str] = []
+        for p in parts:
+            seen += [x for x in p[key] if x.lower() not in {y.lower() for y in seen}]
+        out[key] = seen[:limit]
+    return out
+
+
+def reply_to_profile(text: str, name: str, source: str) -> tuple[dict, list[str]]:
+    try:
+        raw = llm.extract_json(text)
+    except ValueError:
+        raw = None
+    return sanitize(raw, name, source)
+
+
+def analyze_free(cfg: dict, ring: freepool.KeyRing, link: str, name: str, minutes: float):
+    """Watch a public YouTube video on the free keys and return (profile, notes, info). Raises
+    freepool.FreeExhausted when nothing free is left. Free-tier content may be used by Google, so this route only
+    ever carries public videos."""
+    settings = cfg.get("reference") or {}
+    fields = {"name": re.sub(r"[^\w.-]+", "_", name)[:60] or "profile", "menu": design.menu_text(),
+              "zoom_punch": ", ".join(ZOOM_PUNCH), "transitions": ", ".join(TRANSITIONS),
+              "rendered": ", ".join(RENDERED_TRANSITIONS)}
+    parts, notes, used = [], [], []
+    windows = plan_windows(minutes, int(settings.get("window_seconds", 600)), int(settings.get("max_windows", 3)))
+    for n, win in enumerate(windows, 1):
+        schema = profile_schema()
+        for attempt in (1, 2):
+            try:
+                w, info = ring.watch(video_id(link), "analyze_reference", fields, win, thinking="medium",
+                                     schema=schema, max_output=16384)
+                break
+            except gemini_free.GeminiFreeError as err:
+                if attempt == 1 and schema and err.kind == "bad_request" and re.search(r"schema|Unknown name", err.body, re.I):
+                    schema = None            # this model or key rejects the schema field: plain JSON, checked by us
+                    continue
+                raise
+        prof, window_notes = reply_to_profile(w.text, name, link)
+        parts.append(prof)
+        used.append(info)
+        notes += [f"window {n}: {x}" for x in window_notes] if len(windows) > 1 else window_notes
+    merged = merge_profiles(parts)
+    merged["source"] = link
+    models = sorted({u["model"] for u in used})
+    return merged, notes, {"route": "free", "models": models, "windows": len(windows), "cost": 0.0}
+
+
+def analyze_best(cfg: dict, ring: freepool.KeyRing | None, client, source: str, name: str, minutes: float, *,
+                 paid_left: float, log=print):
+    """Free keys first; the paid OpenRouter Pro only when every free option is used up and `paid_left` (dollars)
+    covers the worst case. Returns (profile, notes, info). A local file never goes to the free tier."""
+    link = normalize_youtube(source)
+    if link and ring and ring.keys:
+        try:
+            return analyze_free(cfg, ring, link, name, minutes)
+        except freepool.FreeExhausted as err:
+            log(f"free options are used up ({err}); considering the paid route")
+    elif link:
+        log("no free Gemini keys are set; considering the paid route")
+    est = estimate(cfg, name, minutes)
+    if est > paid_left:
+        raise llm.LLMError(f"the paid route could cost up to ${est:.2f} but only ${max(paid_left, 0):.2f} of the paid "
+                           f"allowance is left (raise it with --max-paid)")
+    if client is None:
+        raise llm.LLMError("free options are used up and no paid OpenRouter key is set")
+    profile, notes, usage = analyze(cfg, client, source, name, minutes)
+    return profile, notes, {"route": "paid", "models": [llm.model_for(cfg, "reference")[0]], "windows": 1,
+                            "cost": float(usage.get("cost") or 0.0)}

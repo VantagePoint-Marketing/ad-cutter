@@ -30,9 +30,7 @@ Editing) to be stored in the agent's brain.
   and what Gemini actually chooses with the new prompt (one `--replan` costs about 3-5 cents).
 - Not done: more fonts (only Montserrat and Permanent Marker are vendored, so typography varies in weight, case and size
   only); persisting recent looks for cloud jobs; the review prompt does not yet score "looks templated".
-- Tests: worker 340 passed + 5 skipped in everything except `tests/test_library.py`, which has 11 failures: they
-  fail only because an uncommitted edit in `worker/gemini_free.py` replaced `KEY_ENV = "GEMINI_API_KEY"` with a pasted
-  API key (do not commit it; restore the line and treat that key as exposed).
+- Tests: worker 445 passed (the 5 Postgres integration tests need a database and were not run).
 
 ### Two-tier model layout (2026-10-02, same branch)
 
@@ -54,6 +52,17 @@ them; Flash is priced in `llm.PRICES` (OpenRouter, 2026-10-02: $0.75 / $3.75 per
 - Deliberately not copied from Gemini's advice: its example EDL uses `source_start`/`source_end` timestamps. Ours stays
   word-index based (the model never writes a time), which is the repo's rule for frame accuracy. Beat detection is not
   needed for talking-head ads with no music bed (it is already code: Whisper word times and the energy envelope).
+- **Free first, paid last (Robert, 2026-10-02):** `freepool.py` rotates the free Gemini keys round-robin on the best free Flash
+  model (`reference.free_models`, best first), waits out per-minute limits up to 90 s, marks a key/model out for the day on a
+  daily-quota 429, steps down a model only when it is out on every key, drops a model that does not exist and a key Google
+  refuses, and raises `FreeExhausted` only when nothing free is left. Then `styleprofile.analyze_best` may use the paid
+  OpenRouter Pro, up to `--max-paid` (default `reference.paid_allowance_usd`, $5) in total. Long videos are watched in up to
+  3 windows of 10 minutes and merged. Keys are read from env only (`GEMINI_API_KEYS`); the local runner `run-refs.sh` (untracked)
+  takes them from `~/Desktop/HERE/openrouter.txt`. `gemini_free.py` gained a second allow-listed prompt (`analyze_reference`)
+  and per-call keys; its `KEY_ENV` is `"GEMINI_API_KEY"` again (a pasted YouTube key had replaced it, which broke 11 tests).
+  **Not run yet:** no free call has been made, so it is unknown whether `gemini-3.8-flash` is on the free tier (the ladder
+  steps down if not), whether the new `AQ.…` style keys work with the `x-goog-api-key` header, or whether `responseJsonSchema`
+  is accepted (it falls back to plain JSON if refused).
 - The existing library (step A) still watches the 17 craft videos with Flash on Google's free tier; moving that to Pro
   would need billing on the Gemini project, so it is unchanged.
 
