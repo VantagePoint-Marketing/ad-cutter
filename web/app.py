@@ -419,10 +419,16 @@ def hub_guard(fn):
         raise HTTPException(503, "The knowledge hub is not set up yet.")
 
 
+def safe_url(url) -> str:
+    """A note's source link, only when it is a plain https address (it becomes a clickable link on the page)."""
+    url = str(url or "").strip()
+    return url if url.startswith("https://") and len(url) <= 500 and not re.search(r"[\s\"'<>]", url) else ""
+
+
 def note_view(item: dict) -> dict:
     meta = item.get("meta") or {}
     return {"kind": item["kind"], "slug": item["slug"], "title": item["title"], "tags": item["tags"], "origin": item["origin"],
-            "url": meta.get("url") or meta.get("foreplay_url") or "", "running_days": meta.get("running_days"),
+            "url": safe_url(meta.get("url") or meta.get("foreplay_url")), "running_days": meta.get("running_days"),
             "snippet": item.get("snippet", "")}
 
 

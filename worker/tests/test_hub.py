@@ -118,7 +118,7 @@ def test_search_results_carry_a_short_snippet():
 def test_goals_are_deduplicated_by_the_database_and_validated_here():
     hub, log = hub_with([(5,)])
     assert hub.add_goal("kinetic captions for finance ads", "tutorial", ["captions", "motion"]) == 5
-    assert "on conflict (kind, lower(goal)) do nothing" in log[0][0]
+    assert "on conflict (kind, lower(goal)) do update" in log[0][0] and "where kb_goals.status in ('skipped', 'failed')" in log[0][0]   # only a removed or failed goal reopens
     with pytest.raises(ValueError):
         hub.add_goal("x", "podcast")
     empty, _ = hub_with([])

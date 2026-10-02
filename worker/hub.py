@@ -206,14 +206,21 @@ class Hub:
             c.execute("insert into kb_state (key, value) values (%s, %s) "
                       "on conflict (key) do update set value = excluded.value, updated_at = now()", (key, json.dumps(value)))
 
+    def _clean_selftest(self) -> None:
+        with self.connect() as c:
+            c.execute("delete from kb_items where kind = 'rule' and slug like 'selftest-%'")
+            c.execute("delete from kb_state where key = '_selftest'")
+            c.execute("delete from kb_goals where goal = 'selftest goal'")
+
     def selftest(self) -> str:
         """Write, search, link, read and delete two throw-away notes on the real database, to prove every statement the hub
         runs is valid there. Raises on the first problem; leaves nothing behind."""
         a = b = None
+        self._clean_selftest()                          # leftovers of an interrupted run
         try:
-            a = self.upsert("rule", "_selftest-a", "Selftest note alpha", "zebra quartz marmalade", ["hook", "pacing"], origin="agent")
-            b = self.upsert("rule", "_selftest-b", "Selftest note beta", "unrelated words", ["cut"], origin="agent")
-            self.upsert("rule", "_selftest-a", "Selftest note alpha", "zebra quartz marmalade", ["hook", "pacing"], origin="agent")   # an update
+            a = self.upsert("rule", "selftest-a", "Selftest note alpha", "zebra quartz marmalade", ["hook", "pacing"], origin="agent")
+            b = self.upsert("rule", "selftest-b", "Selftest note beta", "unrelated words", ["cut"], origin="agent")
+            self.upsert("rule", "selftest-a", "Selftest note alpha", "zebra quartz marmalade", ["hook", "pacing"], origin="agent")   # an update
             self.link(a, b, "related", "selftest")
             self.add_evidence(a, "used", {"selftest": True})
             found = self.search("zebra marmalade", kinds=["rule"], tags=["hook"], limit=3)
@@ -232,18 +239,17 @@ class Hub:
             if not self.evidence(a):
                 raise RuntimeError("evidence was not stored")
             self.counts()
-            gid = self.add_goal("selftest goal", "ads", ["selftest"], asked_by="agent")
+            gid = self.add_goal("selftest goal", "tutorial", ["selftest"], asked_by="agent")
             if gid is None or gid not in [g["id"] for g in self.goals(200)]:
                 raise RuntimeError("the goals list did not show the new goal")
+            if not self.skip_goal(gid):
+                raise RuntimeError("the new goal could not be removed")
+            if self.add_goal("selftest goal", "tutorial", ["selftest"], asked_by="agent") != gid:      # a removed goal can be asked for again
+                raise RuntimeError("a removed goal was not reopened")
             self.skip_goal(gid)
             return "hub SQL works on this database"
         finally:
-            with self.connect() as c:
-                c.execute("delete from kb_goals where goal = 'selftest goal'")
-            for slug in ("_selftest-a", "_selftest-b"):
-                self.delete("rule", slug)
-            with self.connect() as c:
-                c.execute("delete from kb_state where key = '_selftest'")
+            self._clean_selftest()
 
     # ---------------------------------------------------------------- goals (what the agent wants to learn)
 
@@ -269,11 +275,14 @@ class Hub:
         return bool(row)
 
     def add_goal(self, goal: str, kind: str = "tutorial", queries: list[str] | None = None, asked_by: str = "agent") -> int | None:
-        """A new learning goal; None when the same goal already exists."""
+        """A new learning goal; None when the same goal is already waiting, running or done. A goal that was removed or failed is
+        reopened."""
         if kind not in ("tutorial", "reference", "ads"):
             raise ValueError("unknown goal kind")
         with self.connect() as c:
             row = c.execute("insert into kb_goals (goal, kind, queries, asked_by) values (%s, %s, %s, %s) "
-                            "on conflict (kind, lower(goal)) do nothing returning id",
+                            "on conflict (kind, lower(goal)) do update set status = 'open', reason = null, attempts = 0, "
+                            "result = '{}'::jsonb, queries = excluded.queries, asked_by = excluded.asked_by, updated_at = now() "
+                            "where kb_goals.status in ('skipped', 'failed') returning id",
                             (goal.strip()[:300], kind, [q.strip()[:120] for q in (queries or [])][:6], asked_by)).fetchone()
         return int(row[0]) if row else None

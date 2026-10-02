@@ -757,3 +757,11 @@ def test_before_the_hub_tables_exist_the_page_gets_a_plain_503(hubbed, monkeypat
     monkeypatch.setattr(web, "knowledge_hub", lambda: Missing())
     r = hubbed.get(f"/{TOKEN}/api/knowledge")
     assert r.status_code == 503 and "not set up" in r.json()["detail"]
+
+
+def test_only_plain_https_source_links_reach_the_page(hubbed):
+    for bad in ("javascript:alert(1)", "http://example.com", "https://x.com/a b", 'https://x.com/"onmouseover=', "", None):
+        assert web.safe_url(bad) == ""
+    assert web.safe_url("https://app.foreplay.co/discovery?ad=1") == "https://app.foreplay.co/discovery?ad=1"
+    hubbed.hub.items[("technique", "punch-in")]["meta"]["url"] = "javascript:alert(1)"
+    assert hubbed.get(f"/{TOKEN}/api/knowledge/note?kind=technique&slug=punch-in").json()["url"] == ""
