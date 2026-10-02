@@ -30,7 +30,9 @@ from llm import read_key
 API = "https://generativelanguage.googleapis.com/v1beta"
 KEY_ENV = "GEMINI_API_KEY"
 PROMPTS = Path(__file__).resolve().parent / "prompts"
-ALLOWED_PROMPTS = {"watch_craft"}
+ALLOWED_PROMPTS = {"watch_craft", "watch_learn", "watch_reference"}
+# what the team wants to learn from a video: our own goal text (a short plain sentence), never anything about a client
+FOCUS_OK = re.compile(r"^[A-Za-z0-9 ,.'():;/&+-]{1,200}$")
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MODEL_NAME = re.compile(r"^gemini-[a-z0-9.-]+$")
 
@@ -107,12 +109,16 @@ class GeminiFree:
 
     @staticmethod
     def prompt(name: str, fields: dict) -> str:
-        """An allow-listed prompt file, filled with the one field our code produces (`scope`: which part to
-        watch). No other text can reach the free tier through this client."""
+        """An allow-listed prompt file, filled with the fields our code produces: `scope` (which part to watch), and for
+        the two learning prompts `focus` (what the team wants to learn: a short plain sentence in a restricted character
+        set). No other text can reach the free tier through this client."""
         if name not in ALLOWED_PROMPTS:
             raise ValueError(f"prompt {name!r} is not one this client may send")
-        if set(fields) != {"scope"} or not isinstance(fields["scope"], str) or len(fields["scope"]) > 500:
-            raise ValueError("a watch prompt takes exactly one short field, 'scope'")
+        wanted = {"scope"} if name == "watch_craft" else {"scope", "focus"}
+        if set(fields) != wanted or not all(isinstance(v, str) for v in fields.values()) or len(fields["scope"]) > 500:
+            raise ValueError(f"the prompt {name!r} takes exactly the short fields {sorted(wanted)}")
+        if "focus" in fields and not FOCUS_OK.fullmatch(fields["focus"]):
+            raise ValueError("focus must be a short plain sentence (letters, digits and simple punctuation)")
         return (PROMPTS / f"{name}.md").read_text(encoding="utf-8").format(**fields)
 
     def watch(self, model: str, video_id: str, prompt_name: str, fields: dict,

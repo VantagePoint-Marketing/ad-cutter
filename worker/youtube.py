@@ -48,6 +48,34 @@ def video_id(text: str) -> str | None:
     return candidate if candidate and VIDEO_ID.fullmatch(candidate) else None
 
 
+SEARCH_UNITS = 100                  # search.list costs 100 quota units a call (videos.list costs 1)
+
+
+def search(query: str, duration: str = "any", order: str = "relevance", published_after: str | None = None,
+           max_results: int = 10, request: Callable = net.request_json, key_env: str = KEY_ENV) -> list[str]:
+    """Video ids matching a search, best first (100 quota units). `duration` is YouTube's: short (under 4 minutes),
+    medium (4 to 20), long, or any; `order` relevance, viewCount, date or rating. Public videos only; the metadata that
+    decides whether to use one comes from videos() afterwards."""
+    query = re.sub(r"[\x00-\x1f\x7f]+|\s+", " ", query or "").strip()[:120]
+    if not query:
+        return []
+    if duration not in ("any", "short", "medium", "long") or order not in ("relevance", "viewCount", "date", "rating"):
+        raise ValueError("unknown duration or order")
+    params = {"part": "id", "type": "video", "q": query, "maxResults": max(1, min(int(max_results), 25)), "order": order,
+              "relevanceLanguage": "en", "safeSearch": "moderate"}
+    if duration != "any":
+        params["videoDuration"] = duration
+    if published_after:
+        params["publishedAfter"] = published_after
+    data = request("GET", f"{API}/search?{urlencode(params)}", headers={"X-Goog-Api-Key": read_key(key_env)}, timeout=60)
+    ids = []
+    for item in data.get("items") or []:
+        vid = (item.get("id") or {}).get("videoId")
+        if isinstance(vid, str) and VIDEO_ID.fullmatch(vid) and vid not in ids:
+            ids.append(vid)
+    return ids
+
+
 def videos(ids: list[str], request: Callable = net.request_json, key_env: str = KEY_ENV) -> dict[str, dict]:
     """Metadata for up to 50 videos in one call (1 quota unit). Ids YouTube does not return are left out."""
     ids = [i for i in ids if VIDEO_ID.fullmatch(i)]

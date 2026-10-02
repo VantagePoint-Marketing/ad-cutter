@@ -156,6 +156,14 @@ class Maintainer:
                 return f"skills loaded: {len(notes)} notes"
             self.hub.set_state("maintainer", {**state, "seed_target": seed_hash, "seed_done": done})
             return f"skills loading: {done} of {len(notes)}"
+        goals_path = self.seed_dir / "goals.json"
+        goals_hash = file_hash(goals_path)
+        if goals_hash and state.get("goals") != goals_hash:
+            added = 0
+            for g in json.loads(goals_path.read_text(encoding="utf-8")):
+                added += 1 if self.hub.add_goal(g["goal"], g["kind"], g.get("queries", []), asked_by="seed") else 0
+            self.hub.set_state("maintainer", {**state, "goals": goals_hash})
+            return f"learning goals loaded: {added} new"
         want = f"{tech_hash}:{seed_hash}"
         if state.get("links") != want:
             made = self.link_recipes()

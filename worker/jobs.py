@@ -32,6 +32,7 @@ import ad_cutter as ac
 import feedback
 import hub_context
 import hub_import
+import learner
 import library
 from hub import Hub
 import llm
@@ -296,9 +297,12 @@ def serve(once: bool = False) -> None:
 
     signal.signal(signal.SIGTERM, on_term)
     lib = library.Runner(connect, cfg, worker_id=WORKER_ID) if library.enabled() else None
+    # the agent teaches itself from YouTube (tutorials and reference videos) while no job waits; off unless LEARNING_ENABLED=1
+    teach = learner.Learner(connect, cfg, worker_id=WORKER_ID) if learner.enabled() else None
     # the knowledge hub fills and links itself a little at a time while no job waits (no outside calls, no spend); HUB_ENABLED=0 turns it off
     hub_m = hub_import.Maintainer(connect) if os.environ.get("HUB_ENABLED", "1").strip() != "0" else None
-    log.info("worker %s ready; library %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})")
+    log.info("worker %s ready; library %s; learning %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})",
+             "on" if teach else f"off ({learner.why_off()})")
     last_sweep = last_release = 0.0
     while not stopping.is_set():
         try:
@@ -324,6 +328,8 @@ def serve(once: bool = False) -> None:
                 log.info("hub: %s", hub_m.step())
             elif lib and lib.ready():                 # ... or study one part of one video
                 log.info("library: %s", lib.step())
+            elif teach and teach.ready():             # ... or teach itself one more thing from YouTube
+                log.info("learner: %s", teach.step())
             else:
                 time.sleep(POLL_SECONDS)
         except Stop:

@@ -48,6 +48,11 @@ export default defineRailway((ctx) => {
       LIBRARY_ENABLED: production ? "0" : "1",
       GEMINI_API_KEY: preserve(), // Google AI Studio key on a project without billing (free tier); set by hand
       YOUTUBE_API_KEY: preserve(), // YouTube Data API key (metadata only); set by hand
+      // The agent teaching itself (worker/learner.py): it searches YouTube and watches tutorials and reference videos on the free
+      // tier while no job waits, and files what it learns in the knowledge hub. Off in production until it has its own keys.
+      LEARNING_ENABLED: production ? "0" : "1",
+      HUB_ENABLED: "1", // the knowledge hub fills and links itself (no outside calls, no spend)
+      FOREPLAY_API_KEY: preserve(), // Foreplay Public API key (ad references); set by hand, never in a file
     },
   });
 
