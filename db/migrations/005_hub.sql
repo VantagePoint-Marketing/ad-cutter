@@ -60,7 +60,7 @@ create table if not exists kb_state (
 create table if not exists kb_goals (
     id          bigserial primary key,
     goal        text not null,                                   -- 'kinetic caption styles that work for finance ads'
-    kind        text not null default 'tutorial' check (kind in ('tutorial', 'reference')),
+    kind        text not null default 'tutorial' check (kind in ('tutorial', 'reference', 'ads')),
     queries     text[] not null default '{}',                    -- search phrases built from a fixed tag list
     status      text not null default 'open' check (status in ('open', 'working', 'done', 'failed', 'skipped')),
     reason      text,

@@ -257,7 +257,7 @@ class Store:
     def sweep_stale(self, minutes):
         self.swept += 1
 
-    def claim(self, worker):
+    def claim(self, worker, kinds=None):
         for g in self.goals:
             if g["status"] == "open":
                 g["status"] = "working"
@@ -444,7 +444,7 @@ def test_the_learner_runs_only_when_asked_and_both_keys_exist(monkeypatch):
 
 def test_the_seed_goals_are_valid_and_use_plain_search_phrases():
     goals = json.loads((Path(learner.__file__).parent / "hub_seed" / "goals.json").read_text(encoding="utf-8"))
-    assert len(goals) >= 15 and {g["kind"] for g in goals} == {"tutorial", "reference"}
+    assert len(goals) >= 15 and {g["kind"] for g in goals} == {"tutorial", "reference", "ads"}
     assert len({(g["kind"], g["goal"].lower()) for g in goals}) == len(goals)
     for g in goals:
         assert g["queries"] and all(0 < len(q) <= 120 for q in g["queries"])

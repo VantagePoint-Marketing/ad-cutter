@@ -301,6 +301,12 @@ def serve(once: bool = False) -> None:
     teach = learner.Learner(connect, cfg, worker_id=WORKER_ID) if learner.enabled() else None
     # the knowledge hub fills and links itself a little at a time while no job waits (no outside calls, no spend); HUB_ENABLED=0 turns it off
     hub_m = hub_import.Maintainer(connect) if os.environ.get("HUB_ENABLED", "1").strip() != "0" else None
+    if teach:                                      # the learner's SQL has only been run against stand-ins: prove it on this database
+        try:
+            log.info("learner self-test: %s", teach.store.selftest())
+        except Exception as err:                   # noqa: BLE001 - never stop the worker; just keep the ads goals off
+            teach.ads_broken = True
+            log.error("learner self-test FAILED, ad goals are off until fixed: %s", err)
     log.info("worker %s ready; library %s; learning %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})",
              "on" if teach else f"off ({learner.why_off()})")
     last_sweep = last_release = 0.0

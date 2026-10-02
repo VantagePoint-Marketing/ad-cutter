@@ -243,7 +243,7 @@ class Hub:
 
     def add_goal(self, goal: str, kind: str = "tutorial", queries: list[str] | None = None, asked_by: str = "agent") -> int | None:
         """A new learning goal; None when the same goal already exists."""
-        if kind not in ("tutorial", "reference"):
+        if kind not in ("tutorial", "reference", "ads"):
             raise ValueError("unknown goal kind")
         with self.connect() as c:
             row = c.execute("insert into kb_goals (goal, kind, queries, asked_by) values (%s, %s, %s, %s) "

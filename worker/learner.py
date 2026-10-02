@@ -3,11 +3,14 @@
 A goal (table kb_goals) is a plain sentence plus up to a few search phrases and a kind:
   tutorial  - find explainers on editing, motion, captions, ffmpeg, HyperFrames or ad craft, watch them, file the techniques;
   reference - find short videos that are performing well in the team's niche, watch them, file how they are made and why
-              they work, so finished ads can be compared with what is working now.
+              they work, so finished ads can be compared with what is working now;
+  ads       - ask Foreplay for video ads that have run a long time and are still live (the market's own proof they perform),
+              have a cheap model describe how each persuades from its words and metadata, and file them as reference examples.
 
 One `Learner.step()` does ONE thing: run a search (100 YouTube units), or watch one part of one video (a minute or two, on
-Google's free tier, public videos only: nothing is downloaded). It runs only while no ad job is waiting, and only when
-LEARNING_ENABLED=1 and both keys are set. Nothing about a client's footage can reach YouTube or the free tier: search
+Google's free tier, public videos only: nothing is downloaded), or fetch and analyse one page of Foreplay ads (one credit per
+ad, a few cents of OpenRouter). It runs only while no ad job is waiting, and only when LEARNING_ENABLED=1; each kind of goal
+runs only when its own keys are set. Nothing about a client's footage can reach YouTube or the free tier: search
 phrases and the `focus` sentence come from goals (our own text), and gemini_free.py only ever sends a video link plus an
 allow-listed prompt.
 
@@ -22,19 +25,30 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
+import foreplay
 import gemini_free
+import hub_ads
 import hub_learn
 import library
+import llm
+import models
 import youtube
 from gemini_free import GeminiFree, GeminiFreeError
+from budget import BudgetExceeded
 from hub import Hub
+from pg_budget import PostgresLedger
 
 log = logging.getLogger("ad-cutter")
 LEARN_UNITS = "youtube-units-learn"
 MAX_VIDEO_ATTEMPTS = 2
 DEFAULTS = {"daily_units": 1200, "max_tutorial_minutes": 15, "max_reference_seconds": 180, "tutorials_per_goal": 2,
             "references_per_goal": 3, "searches_per_goal": 2, "min_tutorial_views": 2000, "min_reference_views": 50_000,
-            "reference_days": 365, "stale_minutes": 20}
+            "reference_days": 365, "stale_minutes": 20,
+            # Foreplay: credits (one per ad returned) the learner may use a calendar month, credits always left untouched in the
+            # account, ads fetched per call, calls (pages) per goal, and the shortest run that counts as "performing"
+            "ads_monthly_credits": 600, "ads_reserve_credits": 100, "ads_per_call": 10, "ads_pages_per_goal": 2,
+            "ads_min_running_days": 21}
+KEY_NAME = "video-agent"                       # the spend ledger key; must equal jobs.KEY_NAME (a test checks)
 STORE_FIELDS = "id, goal, kind, queries, attempts, result"
 
 
@@ -42,11 +56,24 @@ def settings(cfg: dict) -> dict:
     return {**DEFAULTS, **(cfg.get("learn") or {})}
 
 
+def _has(*names: str) -> bool:
+    return all(os.environ.get(k, "").strip() for k in names)
+
+
+def kinds_available() -> list[str]:
+    """The goal kinds whose keys are set: watching videos needs Google and YouTube keys, studying ads needs Foreplay's key
+    and the OpenRouter key."""
+    out = ["tutorial", "reference"] if _has(gemini_free.KEY_ENV, youtube.KEY_ENV) else []
+    return out + (["ads"] if _has(foreplay.KEY_ENV, "OPENROUTER_VIDEO_AGENT_KEY") else [])
+
+
 def why_off() -> str | None:
     if os.environ.get("LEARNING_ENABLED", "").strip() != "1":
         return "LEARNING_ENABLED is not 1"
+    if kinds_available():
+        return None
     missing = [k for k in (gemini_free.KEY_ENV, youtube.KEY_ENV) if not os.environ.get(k, "").strip()]
-    return f"{' and '.join(missing)} not set" if missing else None
+    return f"{' and '.join(missing)} not set (and no {foreplay.KEY_ENV} + OPENROUTER_VIDEO_AGENT_KEY for ads)"
 
 
 def enabled() -> bool:
@@ -90,12 +117,12 @@ class Store:
             c.execute("update kb_goals set status = 'open', locked_by = null, heartbeat_at = null, updated_at = now() "
                       "where status = 'working' and heartbeat_at < now() - make_interval(mins => %s)", (minutes,))
 
-    def claim(self, worker: str) -> dict | None:
+    def claim(self, worker: str, kinds: list[str]) -> dict | None:
         with self.connect() as c:
             row = c.execute(
                 f"update kb_goals set status = 'working', locked_by = %s, heartbeat_at = now(), updated_at = now() "
-                f"where id = (select id from kb_goals where status = 'open' order by attempts, id for update skip locked limit 1) "
-                f"returning {STORE_FIELDS}", (worker,)).fetchone()
+                f"where id = (select id from kb_goals where status = 'open' and kind = any(%s::text[]) "
+                f"order by attempts, id for update skip locked limit 1) returning {STORE_FIELDS}", (worker, kinds)).fetchone()
         if not row:
             return None
         goal = dict(zip(("id", "goal", "kind", "queries", "attempts", "result"), row))
@@ -121,6 +148,39 @@ class Store:
             row = c.execute(f"select used from api_quota where api = %s and period = {library.PACIFIC_DAY}", (api,)).fetchone()
         return float(row[0]) if row else 0.0
 
+    def known_ad(self, ad_id: str) -> bool:
+        with self.connect() as c:
+            return bool(c.execute("select 1 from kb_items where kind = 'example' and slug = %s", (hub_ads.slug(ad_id),)).fetchone())
+
+    def credits_used(self, month: str) -> int:
+        """Foreplay credits this month's ad-learning has used (kept in kb_state; the account's own balance is checked too)."""
+        with self.connect() as c:
+            row = c.execute("select value->>'used' from kb_state where key = %s", (f"foreplay-credits-{month}",)).fetchone()
+        return int(row[0]) if row and row[0] else 0
+
+    def credits_add(self, month: str, amount: int) -> None:
+        with self.connect() as c:
+            c.execute("insert into kb_state (key, value) values (%s, jsonb_build_object('used', %s::int)) "
+                      "on conflict (key) do update set value = jsonb_build_object('used', "
+                      "coalesce((kb_state.value->>'used')::int, 0) + %s::int), updated_at = now()",
+                      (f"foreplay-credits-{month}", amount, amount))
+
+    def selftest(self) -> str:
+        """Run every statement the ads goal uses on the real database (the unit tests use stand-ins). Raises on a problem;
+        leaves nothing behind."""
+        if self.claim("_selftest", []) is not None:
+            raise RuntimeError("claim with no kinds returned a goal")
+        self.known_ad("_selftest")
+        self.credits_add("_selftest", 2)
+        self.credits_add("_selftest", 3)
+        try:
+            if self.credits_used("_selftest") != 5:
+                raise RuntimeError(f"credits_used returned {self.credits_used('_selftest')}, expected 5")
+        finally:
+            with self.connect() as c:
+                c.execute("delete from kb_state where key = 'foreplay-credits-_selftest'")
+        return "learner SQL works on this database"
+
     def quota_add(self, api: str, amount: float) -> None:
         with self.connect() as c:
             c.execute(f"insert into api_quota (api, period, used) values (%s, {library.PACIFIC_DAY}, %s) "
@@ -129,7 +189,10 @@ class Store:
 
 class Learner:
     def __init__(self, connect, cfg: dict, hub: Hub | None = None, worker_id: str = "learner", client: GeminiFree | None = None,
-                 store: Store | None = None, youtube_search=youtube.search, youtube_videos=youtube.videos, clock=time.time):
+                 store: Store | None = None, youtube_search=youtube.search, youtube_videos=youtube.videos, clock=time.time,
+                 ads_usage=foreplay.usage, ads_discover=foreplay.discover, analyse=None):
+        self.cfg, self.connect, self.ads_broken = cfg, connect, False
+        self.ads_usage, self.ads_discover, self._analyse = ads_usage, ads_discover, analyse
         self.s, self.lib = settings(cfg), library.settings(cfg)
         self.hub, self.store = hub or Hub(connect), store or Store(connect)
         self.client = client or GeminiFree()
@@ -149,7 +212,7 @@ class Learner:
         """Do one thing. Never raises an Exception (it pauses instead); a shutdown signal puts the goal back and propagates."""
         try:
             self.store.sweep_stale(self.s["stale_minutes"])
-            goal = self.store.claim(self.worker_id)
+            goal = self.store.claim(self.worker_id, [k for k in kinds_available() if k != "ads" or not self.ads_broken])
         except Exception as err:                       # noqa: BLE001 - a database blip: try later
             log.exception("learner: could not pick the next goal")
             return self.pause(600, f"{type(err).__name__}: {err}")
@@ -172,6 +235,8 @@ class Learner:
 
     def _work(self, goal: dict, result: dict) -> tuple[str, str, str | None]:
         """(what was done, the goal's new status, a reason). Mutates `result` (it is saved by the caller)."""
+        if goal["kind"] == "ads":
+            return self._work_ads(goal, result)
         result.setdefault("queries_done", [])
         result.setdefault("candidates", [])
         result.setdefault("added", {"recipes": 0, "lessons": 0, "examples": 0})
@@ -189,6 +254,79 @@ class Learner:
         if not found:
             return "no suitable videos found", "done", "the searches found nothing suitable"
         return summary, "done", None
+
+    # ------------------------------------------------ Foreplay ads
+
+    def analyse(self, prompt: str) -> tuple[dict, float]:
+        """One cheap-model call (zero-retention route, spend ledger) that returns (parsed JSON, dollars). Tests stand in for it."""
+        if self._analyse:
+            return self._analyse(prompt)
+        client = llm.OpenRouter(self.cfg.get("openrouter_key_env", "OPENROUTER_VIDEO_AGENT_KEY"),
+                                PostgresLedger(self.connect, KEY_NAME, self.cfg.get("monthly_budget_usd", 100)))
+        raw, usage = client.chat_json(models.MODELS["cheapest"]["openrouter"], [{"type": "text", "text": prompt}], route="zdr",
+                                      est_input_tokens=len(prompt) // 3, max_tokens=8000, reasoning="low", attempts=2,
+                                      label="analyse ads", timeout=180)
+        return raw, float(usage.get("cost") or 0.0)
+
+    def _work_ads(self, goal: dict, result: dict) -> tuple[str, str, str | None]:
+        """One page of ads: fetch (credits), analyse (cents), file. A page whose analysis failed is kept in the goal and retried
+        without fetching (and paying for) it again."""
+        s = self.s
+        result.setdefault("pages", 0)
+        result.setdefault("added", {"examples": 0})
+        result.setdefault("cost_usd", 0.0)
+        pending = result.get("pending") or []
+        if not pending:
+            if result["pages"] >= s["ads_pages_per_goal"] or result.get("exhausted"):
+                return f"{result['added']['examples']} ad(s) studied", "done", None
+            month = datetime.now(timezone.utc).strftime("%Y-%m")
+            want = s["ads_per_call"]
+            if self.store.credits_used(month) + want > s["ads_monthly_credits"]:
+                return self.pause(12 * 3600, f"this month's {s['ads_monthly_credits']} Foreplay credits are used"), "open", None
+            try:
+                left = self.ads_usage()["remaining"]
+            except Exception as err:                   # noqa: BLE001 - key, network or outage: try later, spend nothing
+                return self.pause(1800, f"could not check Foreplay credits ({str(err)[:120]})"), "open", None
+            if left - want < s["ads_reserve_credits"]:
+                return self.pause(12 * 3600, f"Foreplay has {left} credits left; {s['ads_reserve_credits']} are kept back"), "open", None
+            query = (goal["queries"] or [goal["goal"]])[0]
+            try:
+                ads, cursor = self.ads_discover(query, limit=want, cursor=result.get("cursor"),
+                                                running_duration_min_days=s["ads_min_running_days"])
+            except Exception as err:                   # noqa: BLE001 - a failed call returns no ads and costs no credits
+                return self.pause(1800, f"Foreplay call failed ({str(err)[:120]})"), "open", None
+            self.store.credits_add(month, len(ads))    # recorded before anything else can fail
+            result["pages"] += 1
+            result["cursor"], result["exhausted"] = cursor, cursor is None
+            known = {a["id"] for a in ads if self.store.known_ad(a["id"])}
+            pending = [a for a in ads if a["id"] not in known and hub_ads.usable(a, s["ads_min_running_days"])]
+            if not pending:
+                return f"Foreplay page {result['pages']}: {len(ads)} ads, none new and usable", "open", None
+        ids = {a["id"]: a for a in pending}
+        prompt = (gemini_free.PROMPTS / "analyse_ads.md").read_text(encoding="utf-8").format(
+            ads=json.dumps(hub_ads.prompt_ads(pending), ensure_ascii=False, indent=1))
+        try:
+            raw, cost = self.analyse(prompt)
+        except BudgetExceeded as err:
+            result["pending"] = pending
+            return self.pause(3600, f"no budget to analyse ads ({str(err)[:120]})"), "open", None
+        except llm.LLMError as err:
+            result["failures"] = result.get("failures", 0) + 1
+            if result["failures"] >= 3:
+                result.pop("pending", None)
+                result["failures"] = 0
+                return f"gave up on {len(pending)} ads after three failed analyses ({str(err)[:120]})", "open", None
+            result["pending"] = pending
+            return self.pause(600, f"ad analysis failed ({str(err)[:120]})"), "open", None
+        result["cost_usd"] = round(float(result["cost_usd"]) + cost, 4)
+        notes, problems = hub_ads.validate(raw, ids)
+        for ad_id, note in notes.items():
+            hub_ads.ingest(self.hub, ids[ad_id], note, goal["goal"])
+        result["added"]["examples"] += len(notes)
+        result.pop("pending", None)
+        result["failures"] = 0
+        said = f"studied {len(notes)} of {len(pending)} ads for '{goal['goal'][:50]}' (page {result['pages']})"
+        return said + (f"; {'; '.join(problems[:3])}" if problems else ""), "open", None
 
     # ------------------------------------------------ searching
 

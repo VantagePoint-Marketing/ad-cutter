@@ -40,5 +40,10 @@
   {"kind": "reference", "goal": "Investing and trading shorts that use animated charts or graphics",
    "queries": ["trading strategy short animated chart", "investing explained short motion graphics"]},
   {"kind": "reference", "goal": "AI and software product video ads that explain a forecast or prediction",
-   "queries": ["ai stock prediction video ad", "predictive analytics software explainer short"]}
+   "queries": ["ai stock prediction video ad", "predictive analytics software explainer short"]},
+  {"kind": "ads", "goal": "Long-running video ads for trading software and platforms", "queries": ["trading software"]},
+  {"kind": "ads", "goal": "Long-running video ads for stock alerts and signals", "queries": ["stock alerts"]},
+  {"kind": "ads", "goal": "Long-running video ads for AI trading and forecasting tools", "queries": ["ai trading"]},
+  {"kind": "ads", "goal": "Long-running video ads for options trading education and tools", "queries": ["options trading"]},
+  {"kind": "ads", "goal": "Long-running video ads for investing newsletters and research", "queries": ["investing newsletter"]}
 ]
