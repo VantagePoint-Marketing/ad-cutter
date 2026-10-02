@@ -9,41 +9,16 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 1080px; height: 1920px; overflow: hidden; background: #000; }
-      #root { position: relative; width: 1080px; height: 1920px; font-family: Montserrat, "Arial Black", sans-serif; }
+      #root { position: relative; width: 1080px; height: 1920px; font-family: ${font_family}; }
       #a-roll { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
-      /* Top hook text: just below Meta's top UI zone (~270 px) */
-      #headline { position: absolute; top: 280px; left: 70px; right: 70px; display: flex; justify-content: center; }
-      #headline .box { background: #fff; color: #111; font-weight: 800; font-size: 50px; line-height: 1.16;
-        letter-spacing: -0.01em; text-align: center; padding: 22px 30px; border-radius: 18px;
-        box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+      ${css_headline}
 
-      /* Word-by-word captions: lower-middle, above Meta's bottom UI zone (~1250 px) */
-      .cap { position: absolute; left: 30px; right: 30px; top: 1075px; text-align: center; white-space: nowrap;
-        font-weight: 900; font-size: 80px; line-height: 1.1; }
-      .w { position: relative; display: inline-block; margin: 0 20px; }
-      .w .b, .w .y { color: #fff; -webkit-text-stroke: 12px #000; paint-order: stroke fill;
-        text-shadow: 0 6px 18px rgba(0,0,0,.5); }
-      .w .y { position: absolute; left: 0; top: 0; color: #FFE11A; opacity: 0; }
-      .w .p { position: absolute; left: -10px; right: -10px; top: 2px; bottom: 2px; display: flex; align-items: center;
-        justify-content: center; background: #FFE11A; color: #111; border-radius: 12px; opacity: 0;
-        box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+      ${css_caption}
 
-      /* Hand-drawn marker callouts, middle-right of the frame */
-      .co { position: absolute; right: 60px; top: 740px; width: 620px; display: flex; flex-direction: column;
-        align-items: center; transform-origin: 50% 100%; }
-      .co .arrow { width: 130px; height: 150px; margin-bottom: -8px; margin-right: 200px; }
-      .co .arrow path { fill: none; stroke: #E3261C; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
-      .co-box { font-family: "Permanent Marker", cursive; font-size: 56px; line-height: 1.1; color: #111;
-        text-align: center; background: rgba(255,255,255,.94); padding: 14px 28px;
-        border: 6px solid #E3261C; border-radius: 255px 18px 225px 18px / 18px 225px 18px 255px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+      ${css_callout}
 
-      /* CTA end card over the held last frame */
-      #cta { position: absolute; inset: 0; background: rgba(0,0,0,.66); display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 44px; padding: 0 90px 260px; }
-      #cta .line { color: #fff; font-weight: 800; font-size: 68px; line-height: 1.15; text-align: center; }
-      #cta .pill { background: #FFE11A; color: #111; font-weight: 900; font-size: 60px; padding: 20px 44px; border-radius: 999px; }
+      ${css_cta}
     </style>
   </head>
   <body>
@@ -59,10 +34,9 @@
     </div>
     <script>
       const tl = gsap.timeline({ paused: true });
-      tl.fromTo("#headline", {opacity: 0, y: -20}, {opacity: 1, y: 0, duration: 0.3, ease: "power2.out"}, 0);
+      ${headline_anim}
       ${timeline}
-      tl.fromTo("#cta", {opacity: 0}, {opacity: 1, duration: 0.3}, ${cta_start});
-      tl.fromTo("#cta .pill", {scale: 0.7}, {scale: 1, duration: 0.35, ease: "back.out(2.5)"}, ${cta_pill_at});
+      ${cta_anim}
       window.__timelines = window.__timelines || {};
       window.__timelines["main"] = tl;
       tl.seek(0);

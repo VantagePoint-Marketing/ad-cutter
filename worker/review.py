@@ -22,7 +22,7 @@ from safe_media import clean_env
 
 log = logging.getLogger("ad-cutter")
 HERE = Path(__file__).resolve().parent
-AREAS = ("hook", "cuts", "story", "captions", "overlays", "request_fit", "compliance")
+AREAS = ("hook", "cuts", "story", "captions", "overlays", "request_fit", "compliance", "design")
 MAX_PROBLEMS = 6
 MAX_TEXT = 240                          # characters kept of each problem's description and fix
 MAX_PROXY_BYTES = 12_000_000            # one ad's small copy; a longer or busier ad is skipped, not squeezed further
@@ -53,18 +53,24 @@ def build_prompt(entry: dict, brief: str, references: str = "") -> str:
     ad, v = entry["ad"], entry.get("verify") or {}
     callouts = "; ".join(quote(c.get("text", "") if isinstance(c, dict) else c, 60) for c in ad.get("callouts", []))
     match = v.get("match")
+    dz = entry.get("design") or {}
+    look = ("the original look" if not dz.get("designed") else
+            f"{dz.get('caption_style')} captions, {dz.get('headline_style')} headline, {dz.get('callout_style')} callouts, {dz.get('font')} font, "
+            f"{dz.get('motion')} motion, {dz.get('end_style')} end screen, accent {dz.get('accent')}"
+            + (f", {dz.get('cards_shown')} designed card(s)" if dz.get("cards_shown") else "") + ". It was chosen because: "
+            + quote(dz.get("observations"), 300) + " " + quote(dz.get("why"), 200))
     return (HERE / "prompts" / "review_ads.md").read_text(encoding="utf-8").format(
         brief=quote(brief, 2000) or "(No request was given; Gemini used its own judgement.)", k=entry["k"],
         name=quote(ad.get("name"), 80), seconds=f"{float(entry.get('len') or 0):.0f}",
         funnel_stage=quote(ad.get("funnel_stage"), 40) or "not stated", angle=quote(ad.get("angle"), 300) or "not stated",
         headline=quote(ad.get("headline"), 120), callouts=callouts or "none",
         spoken=quote(entry.get("spoken"), 1500) or "(not available)",
-        match=f"{match:.2f}" if isinstance(match, (int, float)) else "n/a",
+        match=f"{match:.2f}" if isinstance(match, (int, float)) else "n/a", look=look,
         references=quote(references, 1600).replace("<<<", " ").replace(">>>", " ") or "(Nothing was provided.)")
 
 
 def validate(raw, seconds: float) -> dict | None:
-    """Gemini's answer, kept only if the seven scores are whole numbers from 1 to 5. Problems naming an unknown area
+    """Gemini's answer, kept only if every score are whole numbers from 1 to 5. Problems naming an unknown area
     are dropped, times are held inside the ad, and every text is cut to length. None when the scores are unusable."""
     if not isinstance(raw, dict) or not isinstance(raw.get("scores"), dict):
         return None
@@ -93,10 +99,12 @@ def validate(raw, seconds: float) -> dict | None:
 
 def needs_a_look(review: dict, speech_match) -> bool:
     """The plan's rule for a weak ad: it has a named problem and any of: cuts, captions or compliance at 2 or less,
-    hook at 2 or less, an average under 3.2, or captions that do not match the speech (under 0.85)."""
+    hook or design at 2 or less, an average of the original seven areas under 3.2, or captions that do not match the
+    speech (under 0.85)."""
     s = review["scores"]
-    weak = (min(s["cuts"], s["captions"], s["compliance"]) <= 2 or s["hook"] <= 2
-            or sum(s.values()) / len(s) < 3.2
+    core = [v for a, v in s.items() if a != "design"]
+    weak = (min(s["cuts"], s["captions"], s["compliance"]) <= 2 or s["hook"] <= 2 or s.get("design", 5) <= 2
+            or sum(core) / len(core) < 3.2
             or (isinstance(speech_match, (int, float)) and speech_match < 0.85))
     return bool(review["problems"]) and weak
 

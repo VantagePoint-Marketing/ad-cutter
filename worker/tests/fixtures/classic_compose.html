@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>The Lag Problem &amp; more</title>
+    <link rel="stylesheet" href="vendor/fonts.css" />
+    <script src="vendor/gsap-3.14.2.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: #000; }
+      #root { position: relative; width: 1080px; height: 1920px; font-family: Montserrat, "Arial Black", sans-serif; }
+      #a-roll { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+      /* Top hook text: just below Meta's top UI zone (~270 px) */
+      #headline { position: absolute; top: 280px; left: 70px; right: 70px; display: flex; justify-content: center; }
+      #headline .box { background: #fff; color: #111; font-weight: 800; font-size: 50px; line-height: 1.16;
+        letter-spacing: -0.01em; text-align: center; padding: 22px 30px; border-radius: 18px;
+        box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+
+      /* Word-by-word captions: lower-middle, above Meta's bottom UI zone (~1250 px) */
+      .cap { position: absolute; left: 30px; right: 30px; top: 1075px; text-align: center; white-space: nowrap;
+        font-weight: 900; font-size: 80px; line-height: 1.1; }
+      .w { position: relative; display: inline-block; margin: 0 20px; }
+      .w .b, .w .y { color: #fff; -webkit-text-stroke: 12px #000; paint-order: stroke fill;
+        text-shadow: 0 6px 18px rgba(0,0,0,.5); }
+      .w .y { position: absolute; left: 0; top: 0; color: #FFE11A; opacity: 0; }
+      .w .p { position: absolute; left: -10px; right: -10px; top: 2px; bottom: 2px; display: flex; align-items: center;
+        justify-content: center; background: #FFE11A; color: #111; border-radius: 12px; opacity: 0;
+        box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+
+      /* Hand-drawn marker callouts, middle-right of the frame */
+      .co { position: absolute; right: 60px; top: 740px; width: 620px; display: flex; flex-direction: column;
+        align-items: center; transform-origin: 50% 100%; }
+      .co .arrow { width: 130px; height: 150px; margin-bottom: -8px; margin-right: 200px; }
+      .co .arrow path { fill: none; stroke: #E3261C; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
+      .co-box { font-family: "Permanent Marker", cursive; font-size: 56px; line-height: 1.1; color: #111;
+        text-align: center; background: rgba(255,255,255,.94); padding: 14px 28px;
+        border: 6px solid #E3261C; border-radius: 255px 18px 225px 18px / 18px 225px 18px 255px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+
+      /* CTA end card over the held last frame */
+      #cta { position: absolute; inset: 0; background: rgba(0,0,0,.66); display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 44px; padding: 0 90px 260px; }
+      #cta .line { color: #fff; font-weight: 800; font-size: 68px; line-height: 1.15; text-align: center; }
+      #cta .pill { background: #FFE11A; color: #111; font-weight: 900; font-size: 60px; padding: 20px 44px; border-radius: 999px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="12.000" data-width="1080" data-height="1920">
+      <video id="a-roll" class="clip" src="body.mp4" muted playsinline data-start="0" data-duration="12.000" data-track-index="0"></video>
+      <audio id="a-roll-audio" src="body.mp4" data-start="0" data-duration="12.000" data-track-index="9" data-volume="1"></audio>
+      <div id="headline" class="clip" data-start="0" data-duration="9.000" data-track-index="1"><div class="box">Why are your indicators &lt;always&gt; late?</div></div>
+      <div class="cap clip" id="g0" data-start="0.200" data-duration="0.840" data-track-index="3"><span class="w" id="g0w0"><span class="b" data-layout-allow-overlap>YOUR</span><span class="y" data-layout-allow-overlap>YOUR</span></span><span class="w" id="g0w1"><span class="b" data-layout-allow-overlap>INDICATORS</span><span class="y" data-layout-allow-overlap>INDICATORS</span></span></div>
+      <div class="cap clip" id="g1" data-start="1.040" data-duration="1.260" data-track-index="3"><span class="w" id="g1w0"><span class="b" data-layout-allow-overlap>ARE</span><span class="y" data-layout-allow-overlap>ARE</span></span><span class="w" id="g1w1"><span class="b" data-layout-allow-overlap>ALWAYS</span><span class="y" data-layout-allow-overlap>ALWAYS</span></span><span class="w" id="g1w2"><span class="b" data-layout-allow-overlap>LATE</span><span class="p" data-layout-allow-overlap>LATE</span></span></div>
+      <div class="cap clip" id="g2" data-start="2.300" data-duration="1.260" data-track-index="3"><span class="w" id="g2w0"><span class="b" data-layout-allow-overlap>AND</span><span class="y" data-layout-allow-overlap>AND</span></span><span class="w" id="g2w1"><span class="b" data-layout-allow-overlap>THE</span><span class="y" data-layout-allow-overlap>THE</span></span><span class="w" id="g2w2"><span class="b" data-layout-allow-overlap>MOVE</span><span class="y" data-layout-allow-overlap>MOVE</span></span></div>
+      <div class="cap clip" id="g3" data-start="3.560" data-duration="1.260" data-track-index="3"><span class="w" id="g3w0"><span class="b" data-layout-allow-overlap>IS</span><span class="y" data-layout-allow-overlap>IS</span></span><span class="w" id="g3w1"><span class="b" data-layout-allow-overlap>OVER</span><span class="y" data-layout-allow-overlap>OVER</span></span><span class="w" id="g3w2"><span class="b" data-layout-allow-overlap>BEFORE</span><span class="y" data-layout-allow-overlap>BEFORE</span></span></div>
+      <div class="cap clip" id="g4" data-start="4.820" data-duration="0.840" data-track-index="3"><span class="w" id="g4w0"><span class="b" data-layout-allow-overlap>THEY</span><span class="y" data-layout-allow-overlap>THEY</span></span><span class="w" id="g4w1"><span class="b" data-layout-allow-overlap>REACT</span><span class="y" data-layout-allow-overlap>REACT</span></span></div>
+      <div class="cap clip" id="g5" data-start="5.660" data-duration="0.840" data-track-index="3"><span class="w" id="g5w0"><span class="b" data-layout-allow-overlap>BECAUSE</span><span class="y" data-layout-allow-overlap>BECAUSE</span></span><span class="w" id="g5w1"><span class="b" data-layout-allow-overlap>THE</span><span class="y" data-layout-allow-overlap>THE</span></span></div>
+      <div class="cap clip" id="g6" data-start="6.500" data-duration="0.840" data-track-index="3"><span class="w" id="g6w0"><span class="b" data-layout-allow-overlap>AVERAGE</span><span class="y" data-layout-allow-overlap>AVERAGE</span></span><span class="w" id="g6w1"><span class="b" data-layout-allow-overlap>NEEDS</span><span class="y" data-layout-allow-overlap>NEEDS</span></span></div>
+      <div class="cap clip" id="g7" data-start="7.340" data-duration="1.520" data-track-index="3"><span class="w" id="g7w0"><span class="b" data-layout-allow-overlap>THREE</span><span class="p" data-layout-allow-overlap>THREE</span></span><span class="w" id="g7w1"><span class="b" data-layout-allow-overlap>DAYS</span><span class="y" data-layout-allow-overlap>DAYS</span></span></div>
+      <div class="co clip" id="co0" data-start="1.000" data-duration="2.500" data-track-index="2"><svg class="arrow" viewBox="0 0 120 140"><path d="M70 132 C 62 96, 58 60, 44 18" /><path d="M22 40 C 32 30, 38 22, 44 16 C 52 26, 60 34, 70 40" /></svg><div class="co-box">Always late</div></div>
+      <div class="co clip" id="co1" data-start="5.000" data-duration="3.000" data-track-index="2"><svg class="arrow" viewBox="0 0 120 140"><path d="M70 132 C 62 96, 58 60, 44 18" /><path d="M22 40 C 32 30, 38 22, 44 16 C 52 26, 60 34, 70 40" /></svg><div class="co-box">3 days<br>behind</div></div>
+      <div id="cta" class="clip" data-start="9.000" data-duration="3.000" data-track-index="4">
+        <div class="line">See predictive trading forecasts in action</div>
+        <div class="pill">→ Tap Learn More</div>
+      </div>
+    </div>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#headline", {opacity: 0, y: -20}, {opacity: 1, y: 0, duration: 0.3, ease: "power2.out"}, 0);
+      tl.set("#g0w0 .y", {opacity: 1}, 0.200);
+      tl.set("#g0w0 .y", {opacity: 0}, 0.620);
+      tl.fromTo("#g0w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 0.200);
+      tl.set("#g0w1 .y", {opacity: 1}, 0.620);
+      tl.set("#g0w1 .y", {opacity: 0}, 1.040);
+      tl.fromTo("#g0w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 0.620);
+      tl.fromTo("#g0", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 0.200);
+      tl.set("#g1w0 .y", {opacity: 1}, 1.040);
+      tl.set("#g1w0 .y", {opacity: 0}, 1.460);
+      tl.fromTo("#g1w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 1.040);
+      tl.set("#g1w1 .y", {opacity: 1}, 1.460);
+      tl.set("#g1w1 .y", {opacity: 0}, 2.060);
+      tl.fromTo("#g1w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 1.460);
+      tl.set("#g1w2 .p", {opacity: 1}, 2.380);
+      tl.fromTo("#g1w2", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 2.380);
+      tl.fromTo("#g1", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 1.040);
+      tl.set("#g2w0 .y", {opacity: 1}, 2.300);
+      tl.set("#g2w0 .y", {opacity: 0}, 2.720);
+      tl.fromTo("#g2w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 2.300);
+      tl.set("#g2w1 .y", {opacity: 1}, 2.720);
+      tl.set("#g2w1 .y", {opacity: 0}, 3.140);
+      tl.fromTo("#g2w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 2.720);
+      tl.set("#g2w2 .y", {opacity: 1}, 3.140);
+      tl.set("#g2w2 .y", {opacity: 0}, 3.560);
+      tl.fromTo("#g2w2", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 3.140);
+      tl.fromTo("#g2", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 2.300);
+      tl.set("#g3w0 .y", {opacity: 1}, 3.560);
+      tl.set("#g3w0 .y", {opacity: 0}, 4.160);
+      tl.fromTo("#g3w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 3.560);
+      tl.set("#g3w1 .y", {opacity: 1}, 4.480);
+      tl.set("#g3w1 .y", {opacity: 0}, 4.560);
+      tl.fromTo("#g3w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 4.480);
+      tl.set("#g3w2 .y", {opacity: 1}, 4.400);
+      tl.set("#g3w2 .y", {opacity: 0}, 4.820);
+      tl.fromTo("#g3w2", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 4.400);
+      tl.fromTo("#g3", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 3.560);
+      tl.set("#g4w0 .y", {opacity: 1}, 4.820);
+      tl.set("#g4w0 .y", {opacity: 0}, 5.240);
+      tl.fromTo("#g4w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 4.820);
+      tl.set("#g4w1 .y", {opacity: 1}, 5.240);
+      tl.set("#g4w1 .y", {opacity: 0}, 5.660);
+      tl.fromTo("#g4w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 5.240);
+      tl.fromTo("#g4", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 4.820);
+      tl.set("#g5w0 .y", {opacity: 1}, 5.660);
+      tl.set("#g5w0 .y", {opacity: 0}, 6.080);
+      tl.fromTo("#g5w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 5.660);
+      tl.set("#g5w1 .y", {opacity: 1}, 6.080);
+      tl.set("#g5w1 .y", {opacity: 0}, 6.500);
+      tl.fromTo("#g5w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 6.080);
+      tl.fromTo("#g5", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 5.660);
+      tl.set("#g6w0 .y", {opacity: 1}, 6.500);
+      tl.set("#g6w0 .y", {opacity: 0}, 6.920);
+      tl.fromTo("#g6w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 6.500);
+      tl.set("#g6w1 .y", {opacity: 1}, 6.920);
+      tl.set("#g6w1 .y", {opacity: 0}, 7.340);
+      tl.fromTo("#g6w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 6.920);
+      tl.fromTo("#g6", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 6.500);
+      tl.set("#g7w0 .p", {opacity: 1}, 7.340);
+      tl.fromTo("#g7w0", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 7.340);
+      tl.set("#g7w1 .y", {opacity: 1}, 7.760);
+      tl.set("#g7w1 .y", {opacity: 0}, 8.360);
+      tl.fromTo("#g7w1", {scale: 1.15}, {scale: 1, duration: 0.14, ease: "power2.out"}, 7.760);
+      tl.fromTo("#g7", {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.1}, 7.340);
+      tl.fromTo("#co0", {opacity: 0, scale: 0.55, rotation: -10}, {opacity: 1, scale: 1, rotation: -4, duration: 0.35, ease: "back.out(2)"}, 1.000);
+      tl.to("#co0", {opacity: 0, duration: 0.2}, 3.300);
+      tl.fromTo("#co1", {opacity: 0, scale: 0.55, rotation: -10}, {opacity: 1, scale: 1, rotation: -4, duration: 0.35, ease: "back.out(2)"}, 5.000);
+      tl.to("#co1", {opacity: 0, duration: 0.2}, 7.800);
+      tl.fromTo("#cta", {opacity: 0}, {opacity: 1, duration: 0.3}, 9.000);
+      tl.fromTo("#cta .pill", {scale: 0.7}, {scale: 1, duration: 0.35, ease: "back.out(2.5)"}, 9.250);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

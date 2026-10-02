@@ -16,3 +16,45 @@
   font-family: 'Permanent Marker'; font-style: normal; font-weight: 400; font-display: block;
   src: url(permanent-marker-latin.woff2) format('woff2');
 }
+
+/* Design-kit fonts (SIL OFL 1.1; see SOURCES.md). One weight each, except Inter. */
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(inter-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: block;
+  src: url(inter-latin-800-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: block;
+  src: url(inter-latin-900-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Anton'; font-style: normal; font-weight: 400; font-display: block;
+  src: url(anton-latin-400-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Sora'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(sora-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(space-grotesk-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Teko'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(teko-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Baloo 2'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(baloo-2-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Caveat'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(caveat-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Rajdhani'; font-style: normal; font-weight: 700; font-display: block;
+  src: url(rajdhani-latin-700-normal.woff2) format('woff2');
+}

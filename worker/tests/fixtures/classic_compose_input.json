@@ -1,0 +1,142 @@
+{
+ "ad": {
+  "name": "The Lag Problem & more",
+  "headline": "Why are your indicators <always> late?"
+ },
+ "words": [
+  {
+   "w": "your",
+   "s": 0.2,
+   "e": 0.62,
+   "key": false
+  },
+  {
+   "w": "indicators",
+   "s": 0.62,
+   "e": 1.04,
+   "key": false
+  },
+  {
+   "w": "are",
+   "s": 1.04,
+   "e": 1.46,
+   "key": false
+  },
+  {
+   "w": "always",
+   "s": 1.46,
+   "e": 2.06,
+   "key": false
+  },
+  {
+   "w": "late",
+   "s": 2.38,
+   "e": 2.46,
+   "key": true
+  },
+  {
+   "w": "and",
+   "s": 2.3,
+   "e": 2.72,
+   "key": false
+  },
+  {
+   "w": "the",
+   "s": 2.72,
+   "e": 3.14,
+   "key": false
+  },
+  {
+   "w": "move",
+   "s": 3.14,
+   "e": 3.56,
+   "key": false
+  },
+  {
+   "w": "is",
+   "s": 3.56,
+   "e": 4.16,
+   "key": false
+  },
+  {
+   "w": "over",
+   "s": 4.48,
+   "e": 4.56,
+   "key": false
+  },
+  {
+   "w": "before",
+   "s": 4.4,
+   "e": 4.82,
+   "key": false
+  },
+  {
+   "w": "they",
+   "s": 4.82,
+   "e": 5.24,
+   "key": false
+  },
+  {
+   "w": "react",
+   "s": 5.24,
+   "e": 5.66,
+   "key": false
+  },
+  {
+   "w": "because",
+   "s": 5.66,
+   "e": 6.08,
+   "key": false
+  },
+  {
+   "w": "the",
+   "s": 6.08,
+   "e": 6.5,
+   "key": false
+  },
+  {
+   "w": "average",
+   "s": 6.5,
+   "e": 6.92,
+   "key": false
+  },
+  {
+   "w": "needs",
+   "s": 6.92,
+   "e": 7.34,
+   "key": false
+  },
+  {
+   "w": "three",
+   "s": 7.34,
+   "e": 7.76,
+   "key": true
+  },
+  {
+   "w": "days",
+   "s": 7.76,
+   "e": 8.36,
+   "key": false
+  }
+ ],
+ "callouts": [
+  [
+   1.0,
+   3.5,
+   "Always late"
+  ],
+  [
+   5.0,
+   8.0,
+   "3 days\nbehind"
+  ]
+ ],
+ "body_len": 9.0,
+ "cfg": {
+  "cta_seconds": 3,
+  "brand": {
+   "cta_line": "See predictive trading forecasts in action",
+   "cta_button": "\u2192 Tap Learn More"
+  }
+ }
+}

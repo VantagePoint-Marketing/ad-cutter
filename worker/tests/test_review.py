@@ -292,3 +292,13 @@ def test_the_check_prompt_carries_the_references_safely_and_keeps_the_comparison
     out = review.validate({**GOOD, "vs_references": "Slower open than the references.\n" + "x" * 500}, 30.0)
     assert out["vs_references"].startswith("Slower open") and len(out["vs_references"]) <= 300
     assert review.validate(GOOD, 30.0)["vs_references"] == ""
+
+
+def test_design_is_scored_but_does_not_move_the_average_of_the_original_areas():
+    assert "design" in review.AREAS
+    base = scored()
+    assert not review.needs_a_look(base, 0.95)
+    weak_design = scored(design=2)
+    assert review.needs_a_look(weak_design, 0.95)                                   # a poor design with a named problem is worth a look
+    assert not review.needs_a_look({**weak_design, "problems": []}, 0.95)
+    assert not review.needs_a_look(scored(design=3), 0.95)

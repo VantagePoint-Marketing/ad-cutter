@@ -40,6 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
+import design_kit
 import llm
 import review
 from budget import BudgetExceeded, LocalLedger
@@ -315,13 +316,14 @@ def clip_lines(clips: list[dict], words: list[dict]) -> str:
 
 
 def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None,
-                 team_notes: str = "", knowledge: str = "") -> str:
+                 team_notes: str = "", knowledge: str = "", design_history: str = "") -> str:
     b = cfg["brand"]
     clips = clips or [{"name": "the video", "start": 0.0, "seconds": words[-1]["e"] if words else 0.0}]
     brief = brief.strip()[:MAX_BRIEF]
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
         brief=brief or "(No request was given. Use your judgement and the defaults.)",
         team_notes=team_notes.strip() or "(Nothing yet.)", knowledge=knowledge.strip() or "(Nothing relevant yet.)",
+        design_options=design_kit.options_text(), design_history=design_history.strip() or "(No earlier ads yet.)",
         clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
         clips=clip_lines(clips, words), ad_count=cfg["ad_count"], max_ad_count=cfg.get("ad_count_max", 6),
         brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
@@ -437,6 +439,9 @@ def validate_plan(plan: dict, words: list[dict], cfg: dict, clips: list[dict] | 
             else:
                 good.append(c)
         ad["callouts"] = good
+        ad["design"], design_notes = design_kit.validate_design(ad.get("design"), ad, words, str(cfg.get("brand", {}).get("name", "")))
+        notes += [f"Ad {k}: design: {n}" for n in design_notes]
+    notes += design_kit.diversify([a["design"] for a in ads])
     return plan, notes
 
 
@@ -570,18 +575,7 @@ def render_body(full: Path, ivs: list[Interval], body_len: float, cta: float, de
 
 # ---------------------------------------------------------------- 5. compose captions & overlays
 
-def caption_groups(words: list[dict]) -> list[list[dict]]:
-    """1-3 word caption groups, broken on pauses and length."""
-    groups, cur = [], []
-    for w in words:
-        if cur and (len(cur) >= 3 or w["s"] - cur[-1]["e"] > 0.35
-                    or sum(len(x["w"]) + 1 for x in cur) + len(w["w"]) > 16):
-            groups.append(cur)
-            cur = []
-        cur.append(w)
-    if cur:
-        groups.append(cur)
-    return groups
+caption_groups = design_kit.caption_groups      # the look lives in design_kit.py; kept here for the tests and callers
 
 
 def ad_words(disp: list[dict], ad: dict, ivs: list[Interval], bounds, body_len: float) -> list[dict]:
@@ -603,44 +597,25 @@ def ad_words(disp: list[dict], ad: dict, ivs: list[Interval], bounds, body_len: 
 
 
 def compose(ad: dict, words: list[dict], callouts: list[tuple[float, float, str]], body_len: float,
-            cfg: dict) -> str:
-    els, js = [], []
-    groups = caption_groups(words)
-    for gi, g in enumerate(groups):
-        gs = g[0]["s"]
-        ge = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else body_len
-        ge = max(gs + 0.1, min(ge, g[-1]["e"] + 0.5, body_len))
-        spans = []
-        for wi, w in enumerate(g):
-            wid = f"g{gi}w{wi}"
-            t = html.escape(w["w"].upper())
-            layer = "p" if w["key"] else "y"
-            spans.append(f'<span class="w" id="{wid}"><span class="b" data-layout-allow-overlap>{t}</span>'
-                         f'<span class="{layer}" data-layout-allow-overlap>{t}</span></span>')
-            js.append(f'tl.set("#{wid} .{layer}", {{opacity: 1}}, {w["s"]:.3f});')
-            if not w["key"]:
-                js.append(f'tl.set("#{wid} .y", {{opacity: 0}}, {w["e"]:.3f});')
-            js.append(f'tl.fromTo("#{wid}", {{scale: 1.15}}, {{scale: 1, duration: 0.14, ease: "power2.out"}}, '
-                      f'{w["s"]:.3f});')
-        els.append(f'<div class="cap clip" id="g{gi}" data-start="{gs:.3f}" data-duration="{ge - gs:.3f}" '
-                   f'data-track-index="3">{"".join(spans)}</div>')
-        js.append(f'tl.fromTo("#g{gi}", {{opacity: 0, y: 14}}, {{opacity: 1, y: 0, duration: 0.1}}, {gs:.3f});')
-    for ci, (a, b, text) in enumerate(callouts):
-        body = "<br>".join(html.escape(x) for x in text.split("\n"))
-        els.append(f'<div class="co clip" id="co{ci}" data-start="{a:.3f}" data-duration="{b - a:.3f}" '
-                   f'data-track-index="2"><svg class="arrow" viewBox="0 0 120 140">'
-                   f'<path d="M70 132 C 62 96, 58 60, 44 18" /><path d="M22 40 C 32 30, 38 22, 44 16 C 52 26, 60 34, '
-                   f'70 40" /></svg><div class="co-box">{body}</div></div>')
-        js.append(f'tl.fromTo("#co{ci}", {{opacity: 0, scale: 0.55, rotation: -10}}, '
-                  f'{{opacity: 1, scale: 1, rotation: -4, duration: 0.35, ease: "back.out(2)"}}, {a:.3f});')
-        js.append(f'tl.to("#co{ci}", {{opacity: 0, duration: 0.2}}, {max(a, b - 0.2):.3f});')
+            cfg: dict, design: dict | None = None, cards: list[tuple[float, float, dict]] | None = None) -> str:
+    """The ad's HTML page. `design` (design_kit.validate_design) chooses the look; None is the original look. `cards` are
+    (start, end, card) in ad time."""
+    r = design_kit.resolve(design, bool(cards))
+    cap_els, cap_js = design_kit.build_captions(words, body_len, r)
+    co_els, co_js = design_kit.build_callouts(callouts, r)
+    card_els, card_js = design_kit.build_cards(cards or [], r)
+    els, js = cap_els + co_els + card_els, cap_js + co_js + card_js
     cta = float(cfg["cta_seconds"])
     tpl = string.Template((HERE / "template" / "composition.html").read_text(encoding="utf-8"))
+    cta_start, pill_at = f"{body_len:.3f}", f"{body_len + 0.25:.3f}"
     return tpl.substitute(
         title=html.escape(ad["name"]), total=f"{body_len + cta:.3f}", body=f"{body_len:.3f}",
-        cta_start=f"{body_len:.3f}", cta_dur=f"{cta:.3f}", cta_pill_at=f"{body_len + 0.25:.3f}",
+        cta_start=cta_start, cta_dur=f"{cta:.3f}", cta_pill_at=pill_at,
         headline=html.escape(ad["headline"]), cta_line=html.escape(cfg["brand"]["cta_line"]),
         cta_button=html.escape(cfg["brand"]["cta_button"]),
+        font_family=r["font_family"], css_headline=r["css_headline"], css_caption=r["css_caption"],
+        css_callout=r["css_callout"], css_cta=r["css_cta"], headline_anim=design_kit.headline_anim(r),
+        cta_anim=design_kit.cta_anim(r, cta_start, pill_at),
         elements="\n      ".join(els), timeline="\n      ".join(js))
 
 
@@ -741,7 +716,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, client: llm.OpenRouter, *,
                  replan: bool = False, only: list[int] | None = None, render_it: bool = True, brief: str = "",
                  names: list[str] | None = None, progress=lambda stage, detail="": None,
-                 team_notes: str = "", knowledge: str = "", references: str = "") -> dict:
+                 team_notes: str = "", knowledge: str = "", references: str = "", design_history: str = "") -> dict:
     """Raw clip(s) + the person's request -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command
     line and the cloud worker. `progress(stage, detail)` is called as work moves along. `team_notes` is the
     feedback block from feedback.team_notes. After rendering, Gemini scores each finished ad (review.py; off with
@@ -762,7 +737,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     else:
         progress("planning", "Gemini is watching the footage")
         log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
-        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes, knowledge)
+        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes, knowledge, design_history)
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
@@ -830,6 +805,15 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
     project.mkdir(exist_ok=True)
     render_body(media["full"], ivs, body_len, float(cfg["cta_seconds"]), project / "body.mp4")
     caps = ad_words(disp, ad, ivs, bounds, body_len)
+
+    def card_timing(a: int, b: int):
+        """Where a card's spoken words fall in the finished ad, or None when they were cut away."""
+        n = next((n for n, s in enumerate(ad["segments"]) if s["from"] <= a and b <= s["to"]), None)
+        if n is None:
+            return None
+        lo, hi = bounds[n]
+        t0, t1 = to_out(min(max(words[a]["s"], lo), hi), ivs, n), to_out(min(max(words[b]["e"], lo), hi), ivs, n)
+        return (t0, t1) if t0 is not None and t1 is not None and t1 > t0 else None
     spans = []
     for c in ad["callouts"]:
         n = next(n for n, s in enumerate(ad["segments"]) if s["from"] <= c["from"] and c["to"] <= s["to"])
@@ -838,7 +822,11 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
         b = to_out(min(max(words[c["to"]]["e"], lo), hi), ivs, n)
         if a is not None and b is not None:
             spans.append((a, b, c["text"]))
-    (project / "index.html").write_text(compose(ad, caps, place_callouts(spans, body_len), body_len, cfg),
+    design = ad.get("design")
+    cards = design_kit.place_cards(design["cards"], card_timing, place_callouts(spans, body_len), body_len) if design else []
+    entry["design"] = {**design_kit.summary(design), "observations": (design or {}).get("observations", ""),
+                       "why": (design or {}).get("why", ""), "cards_shown": len(cards)}
+    (project / "index.html").write_text(compose(ad, caps, place_callouts(spans, body_len), body_len, cfg, design, cards),
                                         encoding="utf-8")
     # fonts and GSAP travel with the project: the render browser has no internet access
     shutil.copytree(HERE / "template" / "vendor", project / "vendor", dirs_exist_ok=True,
@@ -859,6 +847,14 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
     entry["file"] = dest.name
 
 
+def design_line(dz: dict | None) -> str:
+    if not dz or not dz.get("designed"):
+        return "the original look (no design was chosen for this ad)"
+    return (f"{dz['caption_style']} captions, {dz['headline_style']} headline, {dz['callout_style']} callouts, {dz['font']} font, "
+            f"{dz['motion']} motion, {dz['end_style']} end screen, accent {dz['accent']}, {dz.get('cards_shown', 0)} card(s). "
+            f"Saw: {dz.get('observations', '')} Why: {dz.get('why', '')}")
+
+
 def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report: list[dict], cost, cfg: dict,
                 brief: str = "") -> None:
     L = [f"# Ad cuts from {label}", "",
@@ -875,6 +871,7 @@ def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report:
               f"- **Stage:** {ad.get('funnel_stage', '')}. {ad.get('angle', '')}",
               f"- **Headline:** {ad['headline']}",
               f"- **Callouts:** " + ("; ".join(c['text'].replace(chr(10), ' / ') for c in ad['callouts']) or "none"),
+              f"- **Look:** " + design_line(e.get("design")),
               f"- **Layout check:** {(e['check'].splitlines() or ['not run'])[0]}"]
         if e.get("error"):
             L.append(f"- **FAILED:** {e['error']}")

@@ -30,6 +30,7 @@ from pathlib import Path
 
 import ad_cutter as ac
 import feedback
+import design_kit
 import hub_context
 import hub_import
 import learner
@@ -145,11 +146,12 @@ def build_result(run: dict, uploaded: dict[int, str], notes_key: str | None) -> 
                     "callouts": [c["text"] for c in ad.get("callouts", [])], "primary_text": ad.get("primary_text", ""),
                     "seconds": round(e["len"], 1), "layout_check": (e["check"].splitlines() or ["not run"])[0],
                     "verify": e.get("verify"), "file_key": uploaded.get(e["k"]), "error": e.get("error"),
-                    "spoken": e.get("spoken", ""), "review": e.get("review")})
+                    "spoken": e.get("spoken", ""), "review": e.get("review"), "design": e.get("design")})
     return {"summary": plan.get("summary", ""), "response_to_request": plan.get("response_to_request", ""),
             "ads": ads, "claims_to_review": plan.get("claims_to_review", []),
             "pipeline_notes": run["notes"], "notes_key": notes_key, "planning_cost": run["cost"],
             "review_cost": run.get("review_cost", 0.0),
+            "designs": [a["design"] for a in ads if a.get("design")],
             "source_seconds": round(run["duration"], 1), "clips": run.get("clips", [])}
 
 
@@ -159,6 +161,22 @@ def plain_error(err: BaseException) -> str:
 
 
 # ---------------------------------------------------------------- one job
+
+RECENT_DESIGNS_SQL = ("select result->'designs' from jobs where status = 'ready' and result->'designs' is not null "
+                      "order by finished_at desc limit 8")
+
+
+def recent_designs(conn) -> list[dict]:
+    """The looks of the most recent finished batches (newest first), so the planner can avoid repeating itself. Never raises."""
+    try:
+        out: list[dict] = []
+        for (designs,) in conn.execute(RECENT_DESIGNS_SQL).fetchall():
+            out += [d for d in (designs if isinstance(designs, list) else []) if isinstance(d, dict)]
+        return out[:20]
+    except Exception as err:   # noqa: BLE001 - a missing hint must not stop a job
+        log.warning("could not read the recent designs: %s", err)
+        return []
+
 
 def record_comparisons(conn_factory, job_id: str, ref_ids: list[int], report: list[dict]) -> None:
     """Tell the hub which reference notes each checked ad was compared with, and how the ad scored, so references that are
@@ -248,7 +266,8 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
                               progress=progress, team_notes=db(feedback.team_notes),
-                              knowledge=hub_context.fetch(Hub(conn_factory), request_text), references=refs_text)
+                              knowledge=hub_context.fetch(Hub(conn_factory), request_text), references=refs_text,
+                              design_history=design_kit.history_text(db(recent_designs)))
         progress("uploading")
         uploaded = {}
         for e in run["report"]:
@@ -395,6 +414,7 @@ def selftest() -> int:
     check("working copy chain", prepare_chain_works)
     check("ad body chain", body_chain_renders)
     check("self-check copy", review_copy_works)
+    check("recent designs", lambda: f"{len(connect().execute(RECENT_DESIGNS_SQL).fetchall())} recent batches with designs"),
     check("hdr conversion", hdr_chain_works)
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)

@@ -17,6 +17,7 @@ REQUEST>>>
 - The headline shown at the top: {headline}
 - Hand-drawn callouts planned: {callouts}
 - What the speaker says, as captioned: {spoken}
+- The look chosen for this ad: {look}
 - A speech-to-caption match of {match} was measured by a separate tool (1.0 means every caption word was heard).
 
 The video is a vertical phone clip: a headline at the top, word-by-word captions, a few marker callouts, and a
@@ -45,12 +46,17 @@ Score each of these from 1 (bad) to 5 (strong). Use whole numbers only.
 - **overlays**: do the headline and callouts help? Look for any that cover the speaker's face or the captions, show up
   at the wrong moment, repeat each other, or say something the speaker did not say.
 - **request_fit**: does this ad deliver what the person asked for (length, angle, tone, parts of the footage)?
+- **design**: does the look suit this footage and this message, and is it well made? Judge the typography (readable on the
+  footage at phone size, nothing tiny or crowded), colour (legible, not clashing with the footage or the face), motion (the
+  captions and cards arrive and leave cleanly, not distracting) and any designed cards (placed where they do not cover the
+  speaker's face or the captions, showing something worth emphasising). A template-looking, generic or mismatched design
+  scores 2 or 3; a design that makes the ad clearer and more watchable scores 4 or 5.
 - **compliance**: would a financial-services ad reviewer object to anything said or shown (promised returns,
   guaranteed outcomes, percentages of gains, accuracy claims, "can't lose")? 5 means nothing to object to; 1 means it
   would almost certainly be rejected.
 
 Then list the concrete problems you saw, worst first, at most six. For each give the time in seconds, which of the
-seven areas it belongs to, what is wrong in one sentence, and the single change that would fix it. Only list problems
+eight areas it belongs to, what is wrong in one sentence, and the single change that would fix it. Only list problems
 you actually saw or heard; do not invent any. An empty list is fine for a clean ad.
 
 ## Output
@@ -59,7 +65,7 @@ Reply with one JSON object and nothing else:
 
 ```json
 {{
-  "scores": {{"hook": 1, "cuts": 1, "story": 1, "captions": 1, "overlays": 1, "request_fit": 1, "compliance": 1}},
+  "scores": {{"hook": 1, "cuts": 1, "story": 1, "captions": 1, "overlays": 1, "request_fit": 1, "compliance": 1, "design": 1}},
   "problems": [{{"at_s": 0.0, "area": "hook", "what": "...", "fix": "..."}}],
   "verdict": "one or two plain sentences: would you be happy to run this ad, and what is the main reason",
   "vs_references": "one sentence: how this ad's hook, pacing and captions compare with the reference notes, or empty"
