@@ -17,6 +17,7 @@ ALLOWED_HOSTS = {
     "youtube.googleapis.com",
     "public.api.foreplay.co",     # Foreplay API
     "generativelanguage.googleapis.com",   # Gemini free tier: watching public YouTube videos by link (gemini_free.py)
+    "wxoeiwkrannpwtdpgdsa.supabase.co",    # the agent's own storage (agent_store.py): its gate function and signed file links
 }
 # Never, even if someone adds them to the allowlist: YouTube pages and video streams.
 BLOCKED_SUFFIXES = ("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com")
@@ -67,3 +68,19 @@ def request_json(method: str, url: str, headers: dict[str, str] | None = None, b
             return json.loads(resp.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as err:
         raise HttpError(err.code, err.read().decode("utf-8", "replace")) from err
+
+
+def request_bytes(method: str, url: str, headers: dict[str, str] | None = None, data: bytes | None = None,
+                  timeout: float = 120, max_bytes: int = 60 * 1024 * 1024) -> tuple[bytes, dict[str, str]]:
+    """Raw bytes in, raw bytes out, on the same allowlist and with the same no-redirect rule as request_json. Refuses an answer
+    larger than max_bytes. Returns (body, response headers)."""
+    check_url(url)
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    try:
+        with _OPENER.open(req, timeout=timeout) as resp:
+            body = resp.read(max_bytes + 1)
+            if len(body) > max_bytes:
+                raise HttpError(413, f"the answer is larger than {max_bytes} bytes")
+            return body, {k.lower(): v for k, v in resp.headers.items()}
+    except urllib.error.HTTPError as err:
+        raise HttpError(err.code, err.read(2000).decode("utf-8", "replace")) from err

@@ -33,12 +33,14 @@ import feedback
 import design_kit
 import hub_context
 import hub_import
+import hub_sync
 import learner
 import library
 from hub import Hub
 import llm
 import models
 import review
+from agent_store import AgentStore
 from budget import BudgetExceeded
 from pg_budget import PostgresLedger, release_stale
 from storage import Bucket
@@ -351,6 +353,9 @@ def serve(once: bool = False) -> None:
                     log.error("learner self-test FAILED, ad goals are off until fixed: %s", err)
                 else:
                     time.sleep(5)
+    # what the agent learned is copied to its own storage (and can be taken in by another environment); needs AGENT_STORE_TOKEN
+    store = AgentStore.from_env()
+    sync = hub_sync.Syncer(Hub(connect), store) if store else None
     log.info("worker %s ready; library %s; learning %s", WORKER_ID, "on" if lib else f"off ({library.why_off()})",
              "on" if teach else f"off ({learner.why_off()})")
     last_sweep = last_release = 0.0
@@ -376,6 +381,8 @@ def serve(once: bool = False) -> None:
                 return
             elif hub_m and hub_m.ready():             # no editing job waiting: keep the hub filled and linked
                 log.info("hub: %s", hub_m.step())
+            elif sync and sync.ready():               # ... or keep the agent's memory safe in its own storage
+                log.info("sync: %s", sync.step())
             elif lib and lib.ready():                 # ... or study one part of one video
                 log.info("library: %s", lib.step())
             elif teach and teach.ready():             # ... or teach itself one more thing from YouTube

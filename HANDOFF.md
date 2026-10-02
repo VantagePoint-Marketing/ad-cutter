@@ -3,6 +3,23 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## The agent's own storage (2026-10-02, committed locally, NOT pushed; needs a token pasted into Railway)
+
+Robert asked for a Supabase/Drive/OneDrive backend so the agent can keep skills, memory, references and assets; he chose Supabase, the existing
+project "MyVantagePointAI | Marketing Department" (`wxoeiwkrannpwtdpgdsa`), with a NEW private bucket.
+- **Bucket** `video-agent` (private, 50 MB per file, no storage policies, so only the service role can touch it). Created with SQL; nothing else in
+  that project was changed.
+- **Gate** `supabase/functions/video-agent-store/index.ts` (Edge Function, `verify_jwt` off, custom auth): the worker holds ONE shared token, never a
+  Supabase key. The function checks the token by SHA-256 hash (hash is in the source), then allows list / signed upload / signed download / delete / small
+  text, only inside `skills/ memory/ references/ assets/ exports/`, with strict path checks. Rotate: new token, new hash in the source, redeploy via the
+  Supabase MCP `deploy_edge_function` (verify_jwt false), paste the token into Railway. The deployed code equals the repo file.
+- **Client** `worker/agent_store.py` (`AgentStore.from_env()`, needs `AGENT_STORE_TOKEN`; `AGENT_STORE_URL` defaults to the gate), through
+  `net.request_bytes` (new; the Supabase host is on the allowlist). **Sync** `worker/hub_sync.py`: uploads what the agent LEARNED
+  (`Hub.dump_learned`) to `memory/hub/<env>.jsonl.gz` and the Obsidian vault to `exports/hub-<env>.zip` when it changed (at most every 6 h);
+  `HUB_RESTORE_FROM=staging` on a new environment takes in staging's notes once. The worker logs `sync: self-test: storage works ...` at start.
+- **Not done**: assets (B-roll cache, generated clips) and reference files are not written yet; the store API is ready for them. Nobody has pasted the
+  token into Railway yet, so nothing syncs until `AGENT_STORE_TOKEN` is set on the worker (staging and production, same token) and the code is pushed.
+
 ## The design engine (2026-10-02, committed locally on `w0-worker-cloud`, NOT pushed; commits 33ce263, 0ec31b8)
 
 Robert asked how to get better output from HyperFrames and said "yes to everything". The cause of the templated look was that Gemini

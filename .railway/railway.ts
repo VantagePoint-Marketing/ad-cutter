@@ -53,6 +53,11 @@ export default defineRailway((ctx) => {
       LEARNING_ENABLED: production ? "0" : "1",
       HUB_ENABLED: "1", // the knowledge hub fills and links itself (no outside calls, no spend)
       FOREPLAY_API_KEY: preserve(), // Foreplay Public API key (ad references); set by hand, never in a file
+      // The agent's own storage (worker/agent_store.py): a private Supabase bucket behind a gate function. The token is the only
+      // secret the worker holds (set by hand). AGENT_STORE_ENV names this environment's files; set HUB_RESTORE_FROM on a new
+      // environment to take in another one's learned notes once, e.g. production from staging.
+      AGENT_STORE_TOKEN: preserve(),
+      AGENT_STORE_ENV: production ? "production" : "staging",
     },
   });
 

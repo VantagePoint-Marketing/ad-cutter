@@ -176,6 +176,30 @@ class Hub:
                              "order by created_at desc limit %s", (item_id, limit)).fetchall()
         return [{"kind": r[0], "value": r[1], "job_id": r[2], "ad_k": r[3], "at": r[4].isoformat()} for r in rows]
 
+    def dump_learned(self) -> tuple[list[dict], list[tuple]]:
+        """Everything the agent learned (every note not seeded from our own files, any status) and the links from or to those notes,
+        by (kind, slug) so another database can take them in. Evidence is left out."""
+        with self.connect() as c:
+            items = [self._item(r) for r in c.execute(
+                f"select {self.COLS} from kb_items where origin <> 'seed' and slug not like 'selftest-%%' order by kind, slug").fetchall()]
+            links = c.execute(
+                "select a.kind, a.slug, b.kind, b.slug, l.rel, l.note from kb_links l join kb_items a on a.id = l.from_id "
+                "join kb_items b on b.id = l.to_id where (a.origin <> 'seed' or b.origin <> 'seed') "
+                "and a.slug not like 'selftest-%%' and b.slug not like 'selftest-%%' order by 1, 2, 3, 4, 5").fetchall()
+        return items, [tuple(r) for r in links]
+
+    def link_by_slug(self, from_kind: str, from_slug: str, to_kind: str, to_slug: str, rel: str, note: str = "") -> bool:
+        """Link two notes named by kind and slug. False when either does not exist here (yet)."""
+        if rel not in RELS:
+            raise ValueError(f"unknown relation {rel!r}")
+        with self.connect() as c:
+            row = c.execute(
+                "insert into kb_links (from_id, to_id, rel, note) select a.id, b.id, %s, %s from kb_items a, kb_items b "
+                "where a.kind = %s and a.slug = %s and b.kind = %s and b.slug = %s and a.id <> b.id "
+                "on conflict (from_id, to_id, rel) do update set note = excluded.note returning from_id",
+                (rel, note[:300], from_kind, from_slug, to_kind, to_slug)).fetchone()
+        return bool(row)
+
     def counts(self) -> dict[str, int]:
         """Active notes per kind, for the page's summary line."""
         with self.connect() as c:
@@ -239,6 +263,12 @@ class Hub:
             if not self.evidence(a):
                 raise RuntimeError("evidence was not stored")
             self.counts()
+            learned, learned_links = self.dump_learned()
+            if not isinstance(learned, list) or not isinstance(learned_links, list):
+                raise RuntimeError("dump_learned returned the wrong shape")
+            if not self.link_by_slug("rule", "selftest-a", "rule", "selftest-b", "supports", "by slug") or \
+                    self.link_by_slug("rule", "selftest-a", "rule", "no-such-note", "supports"):
+                raise RuntimeError("link_by_slug did not behave")
             gid = self.add_goal("selftest goal", "tutorial", ["selftest"], asked_by="agent")
             if gid is None or gid not in [g["id"] for g in self.goals(200)]:
                 raise RuntimeError("the goals list did not show the new goal")
