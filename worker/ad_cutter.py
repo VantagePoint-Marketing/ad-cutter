@@ -44,6 +44,7 @@ import brain
 import design
 import llm
 import review
+import styleprofile
 from budget import BudgetExceeded, LocalLedger
 from llm import extract_json  # noqa: F401  (kept importable from here for existing callers and tests)
 from safe_media import UnsafeMedia, check_upload, clean_env, ffmpeg_input
@@ -297,7 +298,7 @@ def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
         brief=brief or "(No request was given. Use your judgement and the defaults.)",
         team_notes=team_notes.strip() or "(Nothing yet.)",
-        craft_notes=brain.load(), design_menu=design.menu_text(),
+        craft_notes=brain.load(), style_profiles=styleprofile.load_all(), design_menu=design.menu_text(),
         recent_looks=recent_looks.strip() or "(None yet.)",
         brand_cta_line=b["cta_line"], brand_cta_button=b["cta_button"],
         clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
@@ -313,9 +314,12 @@ def call_gemini(cfg: dict, client: llm.OpenRouter, prompt: str, proxy: Path, dur
                                                   + base64.b64encode(proxy.read_bytes()).decode("ascii")}},
         {"type": "text", "text": prompt},
     ]
+    model, reasoning = llm.model_for(cfg, "footage")
     try:
-        return client.chat_json(cfg["plan_model"], content, route="zdr", label="plan ads",
-                                est_input_tokens=llm.video_tokens(duration) + len(prompt) // 3, max_tokens=16000)
+        return client.chat_json(model, content, route="zdr", label="plan ads",
+                                est_input_tokens=llm.video_tokens(duration) + len(prompt) // 3, max_tokens=16000,
+                                reasoning=reasoning, schema_name="ad_plan",
+                                schema=design.plan_schema() if cfg.get("structured_output", True) else None)
     except (llm.LLMError, BudgetExceeded) as err:
         raise AdCutterError(f"Gemini planning: {err}") from err
 
@@ -773,7 +777,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
         log.info("reusing the saved Gemini plan; a new or changed request needs --replan")
     else:
         progress("planning", "Gemini is watching the footage")
-        log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
+        log.info("asking %s to watch the footage and plan the ads", llm.model_for(cfg, "footage")[0])
         prompt = build_prompt(cfg, words, brief, media["clips"], team_notes,
                               design.recent_looks(work.parent / "design_history.jsonl"))
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
@@ -889,7 +893,7 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
 def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report: list[dict], cost, cfg: dict,
                 brief: str = "") -> None:
     L = [f"# Ad cuts from {label}", "",
-         f"Planned by {cfg['plan_model']} on {dt.date.today():%Y-%m-%d}"
+         f"Planned by {llm.model_for(cfg, 'footage')[0]} on {dt.date.today():%Y-%m-%d}"
          + (f" (planning cost ${cost:.2f})" if isinstance(cost, (int, float)) else " (reused saved plan)") + ".", "",
          f"**What was asked:** {brief.strip() or 'nothing specific; Gemini used the defaults'}", "",
          f"**What Gemini saw:** {plan.get('summary', '')}", ""]

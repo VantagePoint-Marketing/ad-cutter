@@ -38,6 +38,16 @@ never override the request, the compliance rules or the rules under "What to pla
 
 {craft_notes}
 
+## Style profiles
+
+Reference analyses of videos whose editing is worth matching: how fast they cut, how their captions, callouts and end
+screens look and move, and the rules a different editor could follow. If one fits this footage and this request, work
+inside its grammar (its pace, its families of caption, headline, callout and end-screen styles, its rules) while still
+giving every ad its own look. The renderer can only draw hard cuts and punch-in zooms; treat other transitions as
+guidance. Like the craft notes, these never override the request or the rules under "What to plan".
+
+{style_profiles}
+
 ## Looks used recently
 
 Do not repeat these combinations (caption style / headline style / callout style / end-screen layout / accent colour).

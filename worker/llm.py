@@ -25,6 +25,14 @@ API = "https://openrouter.ai/api/v1"
 # USD per 1M tokens (input, output), standard route, prompts under 200k tokens. Checked 2026-09-30.
 PRICES = {
     "google/gemini-3.1-pro-preview": (2.00, 12.00),
+    "google/gemini-3.8-flash": (0.75, 3.75),     # checked on OpenRouter 2026-10-02
+}
+# Who does what. Pro with deep reasoning analyses references once and writes a reusable style profile; Flash, which
+# is several times cheaper, handles the high-volume work on raw footage and checks the finished ads.
+DEFAULT_MODELS = {
+    "reference": {"model": "google/gemini-3.1-pro-preview", "reasoning": "high"},
+    "footage": {"model": "google/gemini-3.8-flash", "reasoning": "medium"},
+    "review": {"model": "google/gemini-3.8-flash", "reasoning": "low"},
 }
 # Provider routing. Raw VantagePoint footage always uses "zdr". "youtube" (public YouTube links only; Google AI Studio
 # is the only provider that accepts them and it is not zero-retention) is confirmed by the Phase 2 spike before use.
@@ -61,6 +69,16 @@ def extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+def model_for(cfg: dict, role: str) -> tuple[str, str]:
+    """(model id, reasoning effort) for a role: "reference", "footage" or "review". `cfg["models"][role]` wins. A
+    config from before the split that only has `plan_model` keeps using it for the footage and review roles."""
+    base = DEFAULT_MODELS[role]
+    if "models" not in cfg and "plan_model" in cfg and role != "reference":
+        return cfg["plan_model"], base["reasoning"]
+    chosen = (cfg.get("models") or {}).get(role) or {}
+    return chosen.get("model", base["model"]), chosen.get("reasoning", base["reasoning"])
+
+
 def estimate_cost(model: str, input_tokens: int, max_output_tokens: int) -> float:
     if model not in PRICES:
         raise LLMError(f"no price on file for {model}; add it to llm.PRICES before using it")
@@ -91,7 +109,10 @@ class OpenRouter:
 
     def chat_json(self, model: str, content: list[dict], *, route: str = "zdr", est_input_tokens: int,
                   max_tokens: int = 16000, reasoning: str = "medium", label: str = "", timeout: float = 600,
-                  attempts: int = 3) -> tuple[dict, dict]:
+                  attempts: int = 3, schema: dict | None = None, schema_name: str = "result") -> tuple[dict, dict]:
+        """One billed model call that must return a JSON object. With `schema` the provider is asked to enforce it
+        (strict structured output); a provider that refuses the schema is asked again for plain JSON, and the reply is
+        checked by our own validators either way."""
         if route not in ROUTES:
             raise LLMError(f"unknown route {route!r}")
         estimate = estimate_cost(model, est_input_tokens, max_tokens)
@@ -104,7 +125,10 @@ class OpenRouter:
                                  f"up to ${worst:.2f}")
         res = self.ledger.reserve(worst, label)
         body = {"model": model, "messages": [{"role": "user", "content": content}], "max_tokens": max_tokens,
-                "reasoning": {"effort": reasoning}, "response_format": {"type": "json_object"},
+                "reasoning": {"effort": reasoning},
+                "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True,
+                                                                              "schema": schema}}
+                                    if schema else {"type": "json_object"}),
                 "usage": {"include": True}, "provider": ROUTES[route]}
         last, charged, unknown, outcome, in_flight_error = None, 0.0, 0.0, None, None
         try:
@@ -125,6 +149,11 @@ class OpenRouter:
                     break
                 except net.HttpError as err:
                     last = str(err)
+                    if (err.status == 400 and body["response_format"]["type"] == "json_schema"
+                            and re.search(r"response_format|json_schema|structured|schema", err.body, re.I)):
+                        log.warning("the provider refused the strict schema; asking for plain JSON instead")
+                        body["response_format"] = {"type": "json_object"}     # a 400 is not billed
+                        continue
                     if err.status >= 500:
                         unknown += estimate          # may have been billed upstream: count the worst case
                     if err.status < 500 and err.status != 429:

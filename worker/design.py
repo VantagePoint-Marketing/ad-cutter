@@ -398,3 +398,54 @@ def remember(path, designs: list[dict], keep: int = 40) -> None:
         path.write_text("\n".join((old + new)[-keep:]) + "\n", encoding="utf-8")
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------- strict schema for the planner's reply
+
+def _enum(names) -> dict:
+    return {"type": "string", "enum": list(names)}
+
+
+def plan_schema() -> dict:
+    """The JSON the planner must return, as a schema the provider can enforce. Choices are enums built from the same
+    menus the validator uses. Word positions are indexes into the transcript: the model never writes a timestamp."""
+    integer, string = {"type": "integer"}, {"type": "string"}
+    span = {"type": "object", "properties": {"from": integer, "to": integer}, "required": ["from", "to"]}
+    palette = {"type": "object", "properties": {k: string for k in DEFAULT_PALETTE}, "required": list(DEFAULT_PALETTE)}
+    look = {"type": "object", "properties": {
+        "mood": string, "palette": palette, "pacing": _enum(PACING),
+        "captions": {"type": "object", "properties": {
+            "style": _enum(CAPTION_STYLES), "position": _enum(CAPTION_POSITIONS), "case": _enum(CAPTION_CASES),
+            "size": _enum(CAPTION_SIZES), "words_per_group": integer},
+            "required": ["style", "position", "case", "size", "words_per_group"]},
+        "headline": {"type": "object", "properties": {"style": _enum(HEADLINE_STYLES),
+                                                       "position": _enum(HEADLINE_POSITIONS)},
+                     "required": ["style", "position"]},
+        "headline_motion": _enum(MOTIONS),
+        "callouts": {"type": "object", "properties": {"style": _enum(CALLOUT_STYLES)}, "required": ["style"]},
+        "callout_motion": _enum(MOTIONS),
+        "punch_ins": {"type": "array", "items": {"type": "object", "properties": {
+            "from": integer, "to": integer, "zoom": {"type": "number"}}, "required": ["from", "to", "zoom"]}},
+        "end_screen": {"type": "object", "properties": {
+            "layout": _enum(END_LAYOUTS), "motion": _enum(MOTIONS), "line": string, "button": string,
+            "seconds": {"type": "number"}}, "required": ["layout", "motion", "line", "button", "seconds"]}},
+        "required": ["mood", "palette", "pacing", "captions", "headline", "headline_motion", "callouts",
+                     "callout_motion", "punch_ins", "end_screen"]}
+    callout = {"type": "object", "properties": {"from": integer, "to": integer, "text": string,
+                                                "side": _enum(CALLOUT_SIDES)},
+               "required": ["from", "to", "text", "side"]}
+    ad = {"type": "object", "properties": {
+        "name": string, "funnel_stage": _enum(("cold", "problem-solution", "retargeting")), "angle": string,
+        "headline": string, "segments": {"type": "array", "items": span},
+        "callouts": {"type": "array", "items": callout}, "primary_text": string, "design": look},
+        "required": ["name", "funnel_stage", "angle", "headline", "segments", "callouts", "primary_text", "design"]}
+    fix = {"type": "object", "properties": {"from": integer, "to": integer, "text": string},
+           "required": ["from", "to", "text"]}
+    claim = {"type": "object", "properties": {"ad": string, "claim": string, "reason": string},
+             "required": ["ad", "claim", "reason"]}
+    return {"type": "object", "properties": {
+        "summary": string, "response_to_request": string, "caption_fixes": {"type": "array", "items": fix},
+        "highlight_words": {"type": "array", "items": integer}, "ads": {"type": "array", "items": ad},
+        "claims_to_review": {"type": "array", "items": claim}},
+        "required": ["summary", "response_to_request", "caption_fixes", "highlight_words", "ads",
+                     "claims_to_review"]}

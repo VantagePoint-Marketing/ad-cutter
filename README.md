@@ -13,7 +13,7 @@ with a `Review Notes.md`.
 How it works:
 1. **Preparing:** ffmpeg joins the clips, in the order given, into one 1080x1920 working copy (10 minutes of
    footage per job at most). Whisper transcribes it with word timings.
-2. **Planning (Gemini Pro, via OpenRouter):** Gemini watches a small proxy of the footage, reads the transcript and
+2. **Planning (Gemini 3.8 Flash, via OpenRouter, strict JSON schema):** Gemini watches a small proxy of the footage, reads the transcript and
    the request, and plans the ads: segments, headline, callouts, caption fixes and claims to review. It picks words
    by index, so it can't invent timestamps, and it says how it read the request.
 3. **Cutting and rendering:** every cut edge is snapped to the gap between words, pauses are trimmed (how hard
@@ -36,6 +36,11 @@ How it works:
 - Settings live in `worker/config.json`: brand, CTA, model, default ad count (`ad_count`) and the most ads Gemini
   may plan (`ad_count_max`).
 - Fonts and GSAP are stored in `worker/template/vendor/` (see `SOURCES.md` there), so renders need no internet.
+- **Two model tiers** (`models` in `worker/config.json`): Gemini Pro with high reasoning analyses reference videos
+  once and writes a reusable *style profile* (`python worker/tools/analyze_reference.py <youtube link|file> --name x
+  --minutes 12`; add `--estimate` to see the worst-case cost first, about $1.30 for 15 minutes). Profiles live in
+  `worker/brain/profiles/` and steer every plan. Gemini Flash does the per-job work on raw footage and the post-render
+  self-check, at about a third of Pro's cost. Beat and silence detection are done by code, never by the model.
 - Useful local options: `--replan` (ask Gemini again, about $0.10), `--only 2` (rebuild one ad), `--no-render`.
 - Tests: `python -m pytest -q` in `worker/` and in `web/`.
 - Cloud setup (Railway worker + web, private Postgres, media bucket): `.railway/README.md` for the infrastructure
