@@ -32,6 +32,7 @@ import ad_cutter as ac
 import feedback
 import library
 import llm
+import models
 import review
 from budget import BudgetExceeded
 from pg_budget import PostgresLedger, release_stale
@@ -211,7 +212,15 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         client = llm.OpenRouter(KEY_ENV, PostgresLedger(conn_factory, KEY_NAME, cfg["monthly_budget_usd"], job_id))
         # the end-screen wording the person chose for this batch (the page checked and trimmed it)
         brand = {k: str(opts[k]) for k in ("cta_line", "cta_button") if isinstance(opts.get(k), str) and opts[k].strip()}
-        run_cfg = {**cfg, "brand": {**cfg.get("brand", {}), **brand}} if brand else cfg
+        run_cfg = {**cfg, "brand": {**cfg.get("brand", {}), **brand}} if brand else dict(cfg)
+        # the AI model and effort the person picked on the page, checked against models.py (never passed on unchecked);
+        # a job that picked nothing keeps the worker's configured model
+        picked = opts.get("model") is not None or opts.get("effort") is not None
+        model_key, model_id, effort = models.resolve(opts.get("model"), opts.get("effort"))
+        if picked:
+            if opts.get("model") is not None:
+                run_cfg["plan_model"] = model_id
+            run_cfg["plan_effort"] = effort
         run = ac.run_pipeline(run_cfg, srcs, work / "pipeline", work / "out", client,
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
@@ -225,6 +234,10 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         notes = sorted((work / "out").glob("Review Notes*.md"))
         notes_key = bucket.upload(notes[-1], Bucket.result_key(job_id, "Review Notes.md"), "text/markdown")             if notes else None
         result = build_result(run, uploaded, notes_key)
+        used = run_cfg.get("plan_model", "")
+        result["planned_with"] = {"model": used, "effort": run_cfg.get("plan_effort", "medium"),
+                                  "model_name": next((m["tech"] for m in models.MODELS.values()
+                                                      if m["openrouter"] == used), used)}
         result["raw_plan"] = json.loads((work / "pipeline" / "plan.json").read_text(encoding="utf-8"))
         if uploaded:
             db(finish, job_id, "ready", result=result)

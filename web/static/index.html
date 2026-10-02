@@ -178,6 +178,26 @@
   .cb.txt { font-size: 13px; width: 42px; }
   .ctl[data-off="1"] { opacity: .55; pointer-events: none; }
 
+  /* ---- the AI and effort menus */
+  .pickers { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .pk { position: relative; }
+  .pkbtn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line2); background: var(--card); border-radius: 999px; padding: 7px 14px; font-weight: 800; font-size: 14px; color: var(--ink); }
+  .pkbtn:hover, .pkbtn[aria-expanded="true"] { border-color: var(--violet); }
+  .pkbtn .i { color: var(--accent); }
+  .menu { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; width: 360px; max-width: calc(100vw - 40px); background: var(--card); border: 1px solid var(--line2); border-radius: 16px; box-shadow: var(--shadow); padding: 8px; max-height: 70vh; overflow: auto; }
+  .menu .mh { padding: 8px 10px 10px; }
+  .menu .mh b { display: block; color: var(--ink); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  .menu .mh span { color: var(--muted); font-size: 13px; }
+  .opt { display: block; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 12px; padding: 10px 12px; }
+  .opt:hover { background: var(--soft); }
+  .opt[aria-selected="true"] { background: var(--chip); box-shadow: inset 0 0 0 1.5px var(--violet); }
+  .opt .t { display: flex; gap: 8px; align-items: center; font-weight: 800; color: var(--ink); }
+  .opt .t .ck { margin-left: auto; color: var(--accent); }
+  .opt .s { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .opt .c { color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .opt .tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; background: var(--chip); color: var(--accent); border-radius: 999px; padding: 2px 8px; }
+  .menu .note { padding: 8px 12px 4px; color: var(--faint); font-size: 12px; }
+
   /* ---- progress */
   .prog h2 { font-size: 22px; }
   .prog .big { font-size: 30px; font-weight: 800; color: var(--ink); }
@@ -331,6 +351,10 @@
             <p class="hint" style="margin:-6px 0 12px">Write it like you'd brief an editor. Plain words are perfect.</p>
             <textarea id="brief" maxlength="1900" placeholder="Describe the ads you want. For example: short ads for traders who've never heard of us, opening with the part about indicators lagging."></textarea>
             <div class="ideas" id="ideas"><span class="hint">Need ideas? Add one:</span></div>
+            <div class="pickers" id="pickers">
+              <div class="pk"><button class="pkbtn" id="effortBtn" type="button" aria-haspopup="listbox" aria-expanded="false"></button><div class="menu" id="effortMenu" role="listbox" hidden></div></div>
+              <div class="pk"><button class="pkbtn" id="modelBtn" type="button" aria-haspopup="listbox" aria-expanded="false"></button><div class="menu" id="modelMenu" role="listbox" hidden></div></div>
+            </div>
             <div class="label">How many ads?</div><div class="hint">More ads means more variety to test.</div>
             <div class="choices" id="adsChoices" role="radiogroup" aria-label="How many ads"></div>
             <div class="label">How long should each one be?</div><div class="hint">Shorter ads hold attention. Longer ones can tell the whole story.</div>
@@ -579,6 +603,7 @@
     if (!$("ctaLine").value && d.cta_line) $("ctaLine").value = d.cta_line;
     if (!$("ctaBtn").value && d.cta_button) $("ctaBtn").value = d.cta_button;
     if (d.cta_seconds) $("ctaSecs").textContent = d.cta_seconds;
+    renderPickers(); updateForm();
   }
 
   function renderChoices() {
@@ -588,7 +613,7 @@
     const secDefs = [[20, "Short", 33], [40, "Medium", 66], [60, "Long", 100]];
     $("secChoices").innerHTML = secDefs.map(([n, t, w]) =>
       `<button class="choice" role="radio" data-v="${n}" aria-checked="${secs === n}"><div class="len"><i style="width:${w}%"></i></div><b>${n} sec${n === 40 ? '<span class="best">Best for most</span>' : ""}</b><small>${t}</small></button>`).join("");
-    $("adsChoices").querySelectorAll(".choice").forEach((b) => b.onclick = () => { ads = +b.dataset.v; renderChoices(); updateForm(); });
+    $("adsChoices").querySelectorAll(".choice").forEach((b) => b.onclick = () => { ads = +b.dataset.v; renderChoices(); renderPickers(); updateForm(); });
     $("secChoices").querySelectorAll(".choice").forEach((b) => b.onclick = () => { secs = +b.dataset.v; renderChoices(); updateForm(); });
   }
   function renderIdeas() {
@@ -601,6 +626,40 @@
       renderIdeas(); $("brief").focus();
     });
   }
+
+  // ---- the AI and effort menus (the options, names and costs come from the server: worker/models.py)
+  let modelKey = store.get("va.model", "best"), effortKey = store.get("va.effort", "medium");
+  const FALLBACK = { models: [{ key: "best", name: "Best quality", tech: "Gemini 3.1 Pro", tag: "Recommended", sub: "", costs: {} }], efforts: [{ key: "medium", name: "Balanced", sub: "" }] };
+  const choices = () => (overviewData && overviewData.choices) || FALLBACK;
+  const cost = (m, e) => { const c = m.costs && m.costs[e] && m.costs[e][String(ads)]; return typeof c === "number" ? c : null; };
+  const money2 = (c) => c == null ? "" : (c < 0.095 ? "about " + Math.max(1, Math.round(c * 100)) + " cent" + (Math.round(c * 100) === 1 ? "" : "s") : "about $" + c.toFixed(2)) + " a batch";
+
+  function validPicks() {
+    const c = choices();
+    if (!c.models.some((m) => m.key === modelKey)) modelKey = c.default_model || c.models[0].key;
+    if (!c.efforts.some((e) => e.key === effortKey)) effortKey = c.default_effort || c.efforts[0].key;
+  }
+  function renderPickers() {
+    validPicks();
+    const c = choices(), m = c.models.find((x) => x.key === modelKey), e = c.efforts.find((x) => x.key === effortKey);
+    $("effortBtn").innerHTML = icon("sparkles") + esc(e.name) + `<span aria-hidden="true">▾</span>`;
+    $("modelBtn").innerHTML = icon("film") + esc(m.name) + `<span aria-hidden="true">▾</span>`;
+    $("effortBtn").title = "How much care the AI takes"; $("modelBtn").title = "Which AI makes the ads";
+    $("effortMenu").innerHTML = `<div class="mh"><b>How much care should the AI take?</b><span>More care costs more and takes longer.</span></div>` +
+      c.efforts.map((x) => `<button class="opt" role="option" type="button" data-k="${esc(x.key)}" aria-selected="${x.key === effortKey}"><div class="t">${esc(x.name)}${x.key === effortKey ? `<span class="ck">${icon("check")}</span>` : ""}</div><div class="s">${esc(x.sub)}</div><div class="c">${esc(money2(cost(m, x.key)))}</div></button>`).join("");
+    $("modelMenu").innerHTML = `<div class="mh"><b>Pick an AI to make your ads</b><span>Not sure? Keep the recommended one. You can change it any time.</span></div>` +
+      c.models.map((x) => `<button class="opt" role="option" type="button" data-k="${esc(x.key)}" aria-selected="${x.key === modelKey}"><div class="t">${esc(x.name)}${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ""}${x.key === modelKey ? `<span class="ck">${icon("check")}</span>` : ""}</div><div class="s">${esc(x.sub)}</div><div class="c">${esc(x.tech)} · ${esc(money2(cost(x, effortKey)))}</div></button>`).join("") +
+      `<div class="note">Costs are estimates, paid from the team's AI account. Your footage always goes over a no-retention route, whichever AI you pick.</div>`;
+    for (const [menu, set] of [["effortMenu", (k) => { effortKey = k; store.set("va.effort", k); }], ["modelMenu", (k) => { modelKey = k; store.set("va.model", k); }]]) {
+      $(menu).querySelectorAll(".opt").forEach((b) => b.onclick = () => { set(b.dataset.k); closeMenus(); renderPickers(); updateForm(); });
+    }
+  }
+  function closeMenus() { for (const [btn, menu] of [["effortBtn", "effortMenu"], ["modelBtn", "modelMenu"]]) { $(menu).hidden = true; $(btn).setAttribute("aria-expanded", "false"); } }
+  function toggleMenu(btn, menu) { const open = $(menu).hidden; closeMenus(); $(menu).hidden = !open; $(btn).setAttribute("aria-expanded", String(open)); }
+  $("effortBtn").onclick = (e) => { e.stopPropagation(); toggleMenu("effortBtn", "effortMenu"); };
+  $("modelBtn").onclick = (e) => { e.stopPropagation(); toggleMenu("modelBtn", "modelMenu"); };
+  document.addEventListener("click", (e) => { if (!e.target.closest(".pk")) closeMenus(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
 
   function readMeta(file) {
     return new Promise((resolve) => {
@@ -645,7 +704,9 @@
     $("checks").innerHTML = files.length ? (notVertical.length ? `<span class="chk warn"><span class="tick">!</span>${notVertical.length === 1 ? "One clip is" : "Some clips are"} not vertical (the sides will be cropped)</span>` : `<span class="chk"><span class="tick">${icon("check")}</span>Vertical video</span>`) +
       (total ? `<span class="chk${total > MAX_MINUTES * 60 ? " warn" : ""}"><span class="tick">${total > MAX_MINUTES * 60 ? "!" : icon("check")}</span>${fmtTime(total)} of footage</span>` : "") : "";
     const lo = Math.round((6 + 3.5 * ads) * .75), hi = Math.round((6 + 3.5 * ads) * 1.25);
-    $("sum").textContent = `${ads} ad${ads > 1 ? "s" : ""}, about ${secs} seconds each. Usually ${lo} to ${hi} minutes once it starts.`;
+    const pm = choices().models.find((x) => x.key === modelKey), pe = choices().efforts.find((x) => x.key === effortKey);
+    const pc = pm && cost(pm, effortKey);
+    $("sum").textContent = `${ads} ad${ads > 1 ? "s" : ""}, about ${secs} seconds each. ${pe ? pe.name : ""} care with ${pm ? pm.name : "the AI"}${pc != null ? ", " + money2(pc) : ""}. Usually ${lo} to ${hi} minutes once it starts.`;
     $("go").disabled = !files.length || !!err;
     // the preview shows the person's own first clip until the ads exist
     if (!watching) {
@@ -721,7 +782,7 @@
 
   $("go").onclick = async () => {
     $("go").disabled = true; $("formErr").textContent = ""; cancelled = false; xhrs = [];
-    const body = { brief: $("brief").value.trim(), ads, seconds: secs, by: name, cta_line: $("ctaLine").value, cta_button: $("ctaBtn").value,
+    const body = { brief: $("brief").value.trim(), ads, seconds: secs, model: modelKey, effort: effortKey, by: name, cta_line: $("ctaLine").value, cta_button: $("ctaBtn").value,
                    clips: files.map((x) => ({ name: x.file.name, bytes: x.file.size })) };
     let created;
     try { created = await api("POST", `${BASE}/api/jobs`, body); } catch (err) { $("formErr").textContent = err.message; $("go").disabled = false; return; }
@@ -853,7 +914,7 @@
     if (sel >= list.length) sel = 0;
     drawList(list, j);
     drawClaims(r, j);
-    $("dInfo").innerHTML = (j.brief ? `<div class="card"><p><span class="hint">You asked for:</span> ${esc(j.brief)}</p>` + (r.response_to_request ? `<p style="margin-top:8px"><span class="hint">How the AI read it:</span> ${esc(r.response_to_request)}</p>` : "") + (r.summary ? `<p style="margin-top:8px"><span class="hint">What it saw:</span> ${esc(r.summary)}</p>` : "") + `</div>` : "") +
+    $("dInfo").innerHTML = madeWith(r) + (j.brief ? `<div class="card"><p><span class="hint">You asked for:</span> ${esc(j.brief)}</p>` + (r.response_to_request ? `<p style="margin-top:8px"><span class="hint">How the AI read it:</span> ${esc(r.response_to_request)}</p>` : "") + (r.summary ? `<p style="margin-top:8px"><span class="hint">What it saw:</span> ${esc(r.summary)}</p>` : "") + `</div>` : "") +
       (r.pipeline_notes && r.pipeline_notes.length ? `<details class="card"><summary>Editor notes (${r.pipeline_notes.length})</summary><ul>${r.pipeline_notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "") +
       ((r.ads || []).filter((a) => a.error).map((a) => `<div class="card"><p class="err"><strong>${esc(a.name)}</strong> could not be made: ${esc(a.error)}</p></div>`).join(""));
     $("adTabs").hidden = n < 2;
@@ -861,6 +922,13 @@
     $("adTabs").querySelectorAll(".pill").forEach((b) => b.onclick = () => select(list, j, +b.dataset.i, true));
     $("dAll").onclick = () => list.forEach((a, i) => setTimeout(() => { const l = document.createElement("a"); l.href = a.download_url; l.download = a.file || ""; document.body.appendChild(l); l.click(); l.remove(); }, i * 700));
     if (n) select(list, j, sel, false, keepAt); else { showEmpty("No ads to show", "Try again with a different request."); $("dSel").innerHTML = ""; }
+  }
+
+  function madeWith(r) {
+    const w = r.planned_with;
+    if (!w) return "";
+    const eff = { low: "Quick", medium: "Balanced", high: "Thorough" }[w.effort] || w.effort;
+    return `<div class="card"><p class="hint">Made with ${esc(w.model_name || "the AI")}, ${esc(eff)} care.</p></div>`;
   }
 
   function drawList(list, j) {

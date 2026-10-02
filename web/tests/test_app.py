@@ -499,6 +499,41 @@ def test_without_choices_gemini_decides_as_before(client):
     assert opts == {"brief": "lead with the lag", "request": "lead with the lag"}
 
 
+def test_the_chosen_ai_and_effort_are_stored_and_reported(client):
+    jid = make(client, model="efficient", effort="high").json()["job_id"]
+    opts = client.db.jobs[jid]["options"]
+    assert opts["model"] == "efficient" and opts["effort"] == "high"
+    asked = client.get(f"/{TOKEN}/api/jobs/{jid}").json()["asked"]
+    assert asked["model"] == "efficient" and asked["effort"] == "high"
+    only_model = client.db.jobs[make(client, model="cheapest").json()["job_id"]]["options"]
+    assert only_model["model"] == "cheapest" and "effort" not in only_model
+
+
+@pytest.mark.parametrize("extra", [{"model": "google/gemini-3.1-pro-preview"}, {"model": "gpt-5"}, {"model": ""},
+                                   {"effort": "extreme"}, {"effort": "MEDIUM"}, {"model": 5}])
+def test_only_the_listed_ais_and_efforts_are_accepted(client, extra):
+    assert make(client, **extra).status_code in (400, 422) and client.db.jobs == {}
+
+
+def test_the_overview_lists_what_the_menus_offer_with_about_what_each_costs(client):
+    c = client.get(f"/{TOKEN}/api/overview").json()["choices"]
+    assert [m["key"] for m in c["models"]] == ["best", "efficient", "cheapest"]
+    assert [e["key"] for e in c["efforts"]] == ["low", "medium", "high"]
+    assert (c["default_model"], c["default_effort"]) == ("best", "medium")
+    best, cheap = c["models"][0], c["models"][2]
+    assert best["costs"]["low"]["3"] < best["costs"]["medium"]["3"] < best["costs"]["high"]["3"]
+    assert best["costs"]["medium"]["1"] < best["costs"]["medium"]["3"] < best["costs"]["medium"]["5"]      # more ads, more checks
+    assert cheap["costs"]["high"]["3"] < best["costs"]["low"]["3"]         # the cheapest AI at full effort still beats the dearest at the lightest
+    assert all("openrouter" not in m for m in c["models"])                 # the real model ids stay on the server
+
+
+def test_a_finished_batch_says_what_it_was_made_with(client):
+    jid = ready_job(client)
+    client.db.jobs[jid]["result"]["planned_with"] = {"model": "google/gemini-3.8-flash", "effort": "low", "model_name": "Gemini 3.8 Flash"}
+    pw = client.get(f"/{TOKEN}/api/jobs/{jid}").json()["result"]["planned_with"]
+    assert pw["model_name"] == "Gemini 3.8 Flash" and pw["effort"] == "low"
+
+
 def test_cancel_stops_a_job_that_has_not_finished_and_leaves_a_finished_one_alone(client):
     jid = new_job(client)["job_id"]
     assert client.post(f"/{TOKEN}/api/jobs/{jid}/cancel").json()["status"] == "cancelled"
@@ -577,7 +612,8 @@ def test_a_running_job_reports_its_progress_to_the_page(client):
     jid = new_job(client)["job_id"]
     client.db.jobs[jid].update(status="working", stage="rendering", stage_detail="ad 2 of 3")
     j = client.get(f"/{TOKEN}/api/jobs/{jid}").json()
-    assert j["percent"] == 59 and j["minutes_left"] == 7 and j["asked"] == {"ads": None, "seconds": None}
+    assert j["percent"] == 59 and j["minutes_left"] == 7
+    assert j["asked"] == {"ads": None, "seconds": None, "model": None, "effort": None}
 
 
 def test_the_recent_list_carries_who_made_it_the_cost_and_the_ad_counts(client):

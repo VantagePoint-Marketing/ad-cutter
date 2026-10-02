@@ -59,7 +59,7 @@ export default defineRailway((ctx) => {
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "web/Dockerfile", // build context is the repo root; the image also copies worker/storage.py and config.json
-      watchPatterns: ["web/**", "worker/storage.py", "worker/config.json"],
+      watchPatterns: ["web/**", "worker/storage.py", "worker/config.json", "worker/models.py"],
     },
     deploy: {
       startCommand: "python app.py",

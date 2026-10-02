@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "worker"))      # storage.py is shared with the worker (copied into the image)
+import models  # noqa: E402
 from storage import MAX_CLIPS, Bucket  # noqa: E402
 
 log = logging.getLogger("video-agent-web")
@@ -167,6 +168,8 @@ class NewJob(BaseModel):
     clips: list[Clip]
     ads: int | None = None               # the page's "How many ads?" (1, 3 or 5); None: Gemini decides
     seconds: int | None = None           # the page's "How long?" (20, 40 or 60); None: Gemini decides
+    model: str | None = None             # the page's AI menu (a key of models.MODELS); None: the default
+    effort: str | None = None            # the page's effort menu (low, medium, high); None: the default
     cta_line: str = Field("", max_length=400)      # end-screen wording for this batch; blank keeps the default
     cta_button: str = Field("", max_length=400)
     by: str = Field("", max_length=400)            # the name the person typed in their browser, shown in Recent
@@ -197,6 +200,10 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
         raise HTTPException(400, "Choose 1, 3 or 5 ads.")
     if body.seconds is not None and body.seconds not in SECONDS_CHOICES:
         raise HTTPException(400, "Choose 20, 40 or 60 seconds.")
+    if body.model is not None and body.model not in models.MODELS:
+        raise HTTPException(400, "Choose one of the AIs in the list.")
+    if body.effort is not None and body.effort not in models.EFFORTS:
+        raise HTTPException(400, "Choose Quick, Balanced or Thorough.")
     asked = brief            # what the person typed: shown back to them
     if body.ads is not None or body.seconds is not None:       # the page's choices go to Gemini as one more sentence
         parts = ([f"{body.ads} ad{'s' if body.ads != 1 else ''}"] if body.ads is not None else []) + \
@@ -221,7 +228,7 @@ def create_job(body: NewJob, token: str = Depends(link)) -> dict:
     # `brief` is what Gemini reads; `request` is what the person typed (shown back to them). The end-screen wording is
     # kept only when it differs from the default, and the worker trims and escapes it again.
     options = {"brief": brief, "request": asked}
-    for key, value in (("ads", body.ads), ("seconds", body.seconds)):
+    for key, value in (("ads", body.ads), ("seconds", body.seconds), ("model", body.model), ("effort", body.effort)):
         if value is not None:
             options[key] = value
     if tidy(body.by, MAX_NAME):
@@ -300,7 +307,7 @@ def job_status(job_id: uuid.UUID, token: str = Depends(link)) -> dict:
 def overview(token: str = Depends(link)) -> dict:
     """The Overview tab: this month's numbers, the team's AI spend against its limit, and the end-screen defaults.
     Each part is read on its own, so one failing query leaves a gap (null) in the page, not a broken page."""
-    out: dict = {"stats": None, "spend": None, "defaults": team_defaults()}
+    out: dict = {"stats": None, "spend": None, "defaults": team_defaults(), "choices": models.catalog()}
     try:
         with connect() as conn:
             found = rows(conn, "select count(*) filter (where status in ('queued', 'working', 'ready', 'failed')) as videos, "
@@ -495,7 +502,8 @@ def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:
     out = {"job_id": row["job_id"], "status": row["status"], "stage": row.get("stage"),
            "stage_detail": row.get("stage_detail"), "error": row.get("error"),
            "brief": opts.get("request", opts.get("brief", "")), "by": opts.get("by"), "percent": percent,
-           "minutes_left": left, "asked": {"ads": opts.get("ads"), "seconds": opts.get("seconds")},
+           "minutes_left": left, "asked": {"ads": opts.get("ads"), "seconds": opts.get("seconds"),
+                                           "model": opts.get("model"), "effort": opts.get("effort")},
            "label": row.get("source_name"), "clips": [s.get("name") for s in (row.get("sources") or [])],
            "created_at": iso(row.get("created_at")), "started_at": iso(row.get("started_at")),
            "finished_at": iso(row.get("finished_at")), "ahead": ahead,
@@ -521,7 +529,8 @@ def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:
                          "pipeline_notes": res.get("pipeline_notes", []), "ads": ads,
                          "notes_url": (b.get_url(notes_key, "Review Notes.md", attachment=True, expires=LINK_SECONDS)
                                        if notes_key else None),
-                         "planning_cost": res.get("planning_cost"), "source_seconds": res.get("source_seconds")}
+                         "planning_cost": res.get("planning_cost"), "source_seconds": res.get("source_seconds"),
+                         "planned_with": res.get("planned_with")}
     return out
 
 

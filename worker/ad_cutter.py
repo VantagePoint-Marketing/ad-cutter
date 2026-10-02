@@ -337,7 +337,8 @@ def call_gemini(cfg: dict, client: llm.OpenRouter, prompt: str, proxy: Path, dur
     ]
     try:
         return client.chat_json(cfg["plan_model"], content, route="zdr", label="plan ads",
-                                est_input_tokens=llm.video_tokens(duration) + len(prompt) // 3, max_tokens=16000)
+                                est_input_tokens=llm.video_tokens(duration) + len(prompt) // 3, max_tokens=16000,
+                                reasoning=cfg.get("plan_effort", "medium"))
     except (llm.LLMError, BudgetExceeded) as err:
         raise AdCutterError(f"Gemini planning: {err}") from err
 
@@ -861,7 +862,7 @@ def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], e
 def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report: list[dict], cost, cfg: dict,
                 brief: str = "") -> None:
     L = [f"# Ad cuts from {label}", "",
-         f"Planned by {cfg['plan_model']} on {dt.date.today():%Y-%m-%d}"
+         f"Planned by {cfg['plan_model']} ({cfg.get('plan_effort', 'medium')} effort) on {dt.date.today():%Y-%m-%d}"
          + (f" (planning cost ${cost:.2f})" if isinstance(cost, (int, float)) else " (reused saved plan)") + ".", "",
          f"**What was asked:** {brief.strip() or 'nothing specific; Gemini used the defaults'}", "",
          f"**What Gemini saw:** {plan.get('summary', '')}", ""]

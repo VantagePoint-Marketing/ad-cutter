@@ -16,16 +16,16 @@ import sys
 import time
 from typing import Callable
 
+import models
 import net
 from budget import BudgetExceeded
 
 log = logging.getLogger("ad-cutter")
 API = "https://openrouter.ai/api/v1"
 
-# USD per 1M tokens (input, output), standard route, prompts under 200k tokens. Checked 2026-09-30.
-PRICES = {
-    "google/gemini-3.1-pro-preview": (2.00, 12.00),
-}
+# USD per 1M tokens (input, output), standard route, prompts under 200k tokens. The models a person may pick, and their
+# prices (checked 2026-10-02), live in models.py; a model that is not there has no price and is refused.
+PRICES = {m["openrouter"]: m["price"] for m in models.MODELS.values()}
 # Provider routing. Raw VantagePoint footage always uses "zdr". "youtube" (public YouTube links only; Google AI Studio
 # is the only provider that accepts them and it is not zero-retention) is confirmed by the Phase 2 spike before use.
 ROUTES = {
