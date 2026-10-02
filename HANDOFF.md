@@ -3,6 +3,27 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## The design engine (2026-10-02, committed locally on `w0-worker-cloud`, NOT pushed; commits 33ce263, 0ec31b8)
+
+Robert asked how to get better output from HyperFrames and said "yes to everything". The cause of the templated look was that Gemini
+decided only the words; the look was hard-coded. Now `worker/design_kit.py` holds a closed kit and Gemini writes a per-ad design brief:
+- **Kit**: 8 fonts (SIL OFL, files in `template/vendor`, licences recorded in `vendor/SOURCES.md`), 3 motions, 5 caption styles, 4 headline
+  styles, 2 callout styles, 3 end screens, 5 card kinds (stat, quote, lower_third, compare, kinetic), a 3-colour palette (hex, checked for legibility).
+  Cards are tied to spoken word ranges and every word on a card must have been said (plain characters only).
+- **Brief**: each ad's `design` = observations of the footage, choices, and a reason; no observation or reason = the original look. Invalid
+  single options fall back to the original value with a note. Ads in one batch that look alike get their caption style varied (`diversify`).
+  The prompt (`plan_ads.md`) is built from the same tables the code checks against (`options_text`), plus the last 20 looks (`history_text`,
+  read from `jobs.result->'designs'`, SQL `RECENT_DESIGNS_SQL`, proven by `jobs.py --selftest`) and design/reference hints from the hub.
+- **Original look is byte-identical**: `tests/fixtures/classic_compose.html` is the baseline from before the change; `compose()` with no design
+  must reproduce it. HyperFrames' static check needs inline `@font-face` for fonts it does not know, so non-Montserrat fonts get inline rules.
+- **Self-check** now has an eighth score, `design` (a design of 2 or less with a named problem flags the ad; the old average still uses the
+  original seven). The scorecard also shows "Next to ads that are working".
+- **Verified live (2026-10-02, about $0.12)**: one real 149 s clip, brief asking for three different designed ads: three clearly different looks
+  rendered and passed the HyperFrames check (copies and a contact sheet are in `Desktop/Ad Cutter design test ads 2026-10-02/`). Gemini kept the
+  original look's caption style for ad 1 but with its own colours and cards; ad 2 used a calm clean look; ad 3 a hype Anton look with a band headline.
+- **Not done yet** (from the roadmap): the loop (L0 plumbing, L1 repair rounds, "Change this ad"), planner tools, a measured golden set, subject-aware
+  framing, ad-media watching, and Gemini Omni for generated shots (needs a Google AI Studio key; API cannot yet restyle a full clip).
+
 ## The knowledge hub and the self-teaching agent (2026-10-02, committed locally on `w0-worker-cloud`, NOT pushed)
 
 What exists (commits 48f036f, f59429c, 386ceb3, 4a03e36, then "Hub part 5"):
