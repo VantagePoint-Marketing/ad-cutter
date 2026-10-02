@@ -317,3 +317,80 @@ def test_the_selftest_failure_is_reported_loudly_not_swallowed_into_a_pass(tmp_p
     m, fake, clock = maintainer(tmp_path, monkeypatch)
     fake.selftest = lambda: (_ for _ in ()).throw(RuntimeError("search returned [], expected [4]"))
     assert "search returned" in m.step()
+
+
+# ---------------------------------------------------------------- what the planner is told
+
+import ad_cutter as ac  # noqa: E402
+import hub_context  # noqa: E402
+
+
+class SearchHub:
+    def __init__(self, by_kind):
+        self.by_kind, self.asked = by_kind, []
+
+    def search(self, query="", kinds=None, tags=None, limit=8):
+        self.asked.append((query, tuple(kinds or ()), limit))
+        return self.by_kind.get((kinds or [""])[0], [])[:limit]
+
+
+def note(i, kind, title, body, **meta):
+    return {"id": i, "kind": kind, "slug": f"s{i}", "title": title, "body": body, "tags": [], "meta": meta}
+
+
+def test_the_plan_gets_techniques_rules_and_lessons_without_repeats_and_within_the_limit():
+    hub = SearchHub({"technique": [note(1, "technique", "Hook", "Open on the payoff. " * 40), note(2, "technique", "Pace", "Cut dead air.")],
+                     "rule": [note(3, "rule", "Open on the question", "House rule.")],
+                     "lesson": [note(4, "lesson", "Pacing", 'Keep "breathing room"\n\nbetween cuts.', channel="HillierSmith")]})
+    text = hub_context.fetch(hub, "short ads about lag")
+    lines = text.splitlines()
+    assert lines[0].startswith("- Technique, Hook: Open on the payoff.") and len(lines[0]) < 320 and lines[0].endswith("…")
+    assert sum(1 for l in lines if "Technique, Hook" in l) == 1                               # the same note is not listed twice
+    assert any(l.startswith("- Rule, Open on the question") for l in lines)
+    assert any(l.startswith("- Lesson from a video (HillierSmith): Keep 'breathing room' between cuts.") for l in lines)
+    assert hub.asked[0][0] == "short ads about lag" and hub.asked[0][1] == ("technique",)
+    assert any(q == hub_context.CORE_QUERY for q, _, _ in hub.asked)                            # core craft help even for a vague request
+
+
+def test_an_empty_request_still_gets_the_core_techniques_and_an_empty_hub_says_so():
+    hub = SearchHub({"technique": [note(1, "technique", "Hook", "Open on the payoff.")]})
+    assert hub_context.fetch(hub, "").startswith("- Technique, Hook")
+    assert hub_context.fetch(SearchHub({}), "anything") == hub_context.EMPTY
+
+
+def test_the_knowledge_block_is_cut_to_its_budget():
+    many = [note(i, "technique", f"T{i}", "x" * 250) for i in range(1, 60)]
+    text = hub_context.fetch(SearchHub({"technique": many}), "q", max_chars=900)
+    assert len(text) <= 900 and text.count("\n") >= 1
+
+
+def test_a_broken_hub_gives_the_planner_less_help_never_an_error():
+    class Broken:
+        def search(self, *a, **k):
+            raise RuntimeError("relation kb_items does not exist")
+    assert hub_context.fetch(Broken(), "q") == hub_context.EMPTY
+
+
+def test_the_plan_prompt_carries_the_knowledge_block_as_hints():
+    words = [{"w": "hello", "s": 0.0, "e": 0.4}, {"w": "world", "s": 0.5, "e": 0.9}]
+    cfg = {"brand": {"name": "VP", "product": "p", "audience": "a"}, "ad_count": 3, "ad_min_seconds": 20, "ad_max_seconds": 75}
+    plain = ac.build_prompt(cfg, words)
+    assert "## What the agent has learned about editing" in plain and "(Nothing relevant yet.)" in plain
+    block = "- Technique, Hook: Open on the payoff. {braces}"
+    p = ac.build_prompt(cfg, words, "req", None, "", block)
+    assert block in p and "never override the request" in p and p.index(block) < p.index("## The footage")
+
+
+from test_jobs import cancellable, env, fake_run, job  # noqa: E402,F401
+import jobs  # noqa: E402
+
+
+def test_the_job_gives_the_planner_what_the_hub_knows_for_the_typed_request(monkeypatch, env):
+    log, cfg, bucket, conn = env
+    asked = []
+    monkeypatch.setattr(hub_context, "fetch", lambda hub, request: asked.append(request) or "- Technique, Hook: x")
+    monkeypatch.setattr(ac, "run_pipeline", fake_run())
+    opts = {"brief": "lead with lag\n\nMake 3 ads.", "request": "lead with lag"}
+    assert jobs.run_job(conn, bucket, job(options=opts), cfg) == "ready"
+    assert ac.run_pipeline.kwargs["knowledge"] == "- Technique, Hook: x"
+    assert asked == ["lead with lag"]                                       # what the person typed, not the added sentence

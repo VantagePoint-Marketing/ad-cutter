@@ -315,13 +315,13 @@ def clip_lines(clips: list[dict], words: list[dict]) -> str:
 
 
 def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None,
-                 team_notes: str = "") -> str:
+                 team_notes: str = "", knowledge: str = "") -> str:
     b = cfg["brand"]
     clips = clips or [{"name": "the video", "start": 0.0, "seconds": words[-1]["e"] if words else 0.0}]
     brief = brief.strip()[:MAX_BRIEF]
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
         brief=brief or "(No request was given. Use your judgement and the defaults.)",
-        team_notes=team_notes.strip() or "(Nothing yet.)",
+        team_notes=team_notes.strip() or "(Nothing yet.)", knowledge=knowledge.strip() or "(Nothing relevant yet.)",
         clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
         clips=clip_lines(clips, words), ad_count=cfg["ad_count"], max_ad_count=cfg.get("ad_count_max", 6),
         brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, client: llm.OpenRouter, *,
                  replan: bool = False, only: list[int] | None = None, render_it: bool = True, brief: str = "",
                  names: list[str] | None = None, progress=lambda stage, detail="": None,
-                 team_notes: str = "") -> dict:
+                 team_notes: str = "", knowledge: str = "") -> dict:
     """Raw clip(s) + the person's request -> checked ad cuts in out_dir (+ Review Notes.md). Used by the command
     line and the cloud worker. `progress(stage, detail)` is called as work moves along. `team_notes` is the
     feedback block from feedback.team_notes. After rendering, Gemini scores each finished ad (review.py; off with
@@ -762,7 +762,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     else:
         progress("planning", "Gemini is watching the footage")
         log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
-        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes)
+        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes, knowledge)
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")

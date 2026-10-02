@@ -30,8 +30,10 @@ from pathlib import Path
 
 import ad_cutter as ac
 import feedback
+import hub_context
 import hub_import
 import library
+from hub import Hub
 import llm
 import models
 import review
@@ -225,7 +227,8 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
         run = ac.run_pipeline(run_cfg, srcs, work / "pipeline", work / "out", client,
                               replan=job["kind"] == "replan", only=opts.get("only"),
                               brief=str(opts.get("brief") or opts.get("note") or ""), names=names,
-                              progress=progress, team_notes=db(feedback.team_notes))
+                              progress=progress, team_notes=db(feedback.team_notes),
+                              knowledge=hub_context.fetch(Hub(conn_factory), str(opts.get("request") or opts.get("brief") or opts.get("note") or "")))
         progress("uploading")
         uploaded = {}
         for e in run["report"]:
