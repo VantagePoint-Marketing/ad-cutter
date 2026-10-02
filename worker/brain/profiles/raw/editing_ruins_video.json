@@ -1,0 +1,86 @@
+{
+  "name": "editing_ruins_video",
+  "source": "https://www.youtube.com/watch?v=IROKEjmIIlM",
+  "summary": "An analytical video critique featuring an in-person conversational podcast interspersed with Premiere Pro timeline breakdowns and side-by-side edit comparisons. The visual rhythm balances steady conversational multi-cam dialogue with focused, illustrative B-roll case studies.",
+  "cadence": {
+    "average_shot_seconds": 3.8,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0.583,
+    "zoom_punch": "rare",
+    "pace": "natural"
+  },
+  "captions": {
+    "styles": [
+      "clean_shadow"
+    ],
+    "case": [
+      "sentence",
+      "upper"
+    ],
+    "position": [
+      "low",
+      "middle"
+    ],
+    "notes": "Captions primarily appear inside embedded documentary clips using legible white text with soft dark drop shadow."
+  },
+  "headline": {
+    "styles": [
+      "tag",
+      "none",
+      "white_box"
+    ],
+    "notes": "Small lower-corner tags distinguish comparison clips ('Drew's Edit', 'Hayden's Edit') and bold section headers label editing concepts."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "marker_box",
+      "scribble"
+    ],
+    "motions": [
+      "fade",
+      "pop",
+      "slide"
+    ],
+    "notes": "Minimal line diagrams, directional motion arrows, and boxed overlays highlight visual focus points and pacing mechanics."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "j_cut",
+      "l_cut"
+    ],
+    "notes": "Natural audio lead-ins (J/L cuts) connect podcast discussion to timeline demonstrations and archival footage."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line",
+      "centered_card"
+    ],
+    "tone": "Direct and educational call to masterclass and editing consultations."
+  },
+  "rules": [
+    "Switch to B-roll or NLE screen captures whenever a specific cut decision is critiqued",
+    "Label source comparison versions in the corner with clean pill tags",
+    "Preserve breathing room during serious topic explanations rather than over-compressing pauses",
+    "Use screen graphics like directional arrows and boxes to demonstrate gaze movement and eye-tracing",
+    "Support editing lessons with real project timeline views showing track stacking and audio layout",
+    "Maintain consistent multi-cam angles for podcast interview framing",
+    "Align B-roll motion vectors continuously across consecutive cuts for spatial cohesion",
+    "Switch between wide studio shot, individual host close-ups, and full-screen edit playback based on conversational flow.",
+    "Use picture-in-picture host reactions over footage when commentary directly references real-time visual beats.",
+    "Label distinct comparison versions clearly in the lower corner with consistent color and font branding.",
+    "Overlay compositing guides and eye-tracing targets to visualize editing feedback concretely.",
+    "Preserve natural conversational pacing without hyper-fast jump cutting during discussions."
+  ],
+  "avoid": [
+    "Rapid-fire meme popups or cartoon sound effects during serious subject analysis",
+    "Center-screen karaoke animated caption pills",
+    "Unmotivated whip pans and flash transitions",
+    "Constant digital push-ins or zoom punches every few seconds",
+    "Flashy decorative transitions like 3D spins or cheesy screen wipes.",
+    "Continuous word-by-word karaoke captions.",
+    "Overly aggressive zoom punches every few seconds.",
+    "Cluttered animated stickers that distract from footage analysis."
+  ]
+}

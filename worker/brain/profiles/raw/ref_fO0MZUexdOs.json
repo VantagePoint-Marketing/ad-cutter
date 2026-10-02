@@ -1,0 +1,77 @@
+{
+  "name": "ref_fO0MZUexdOs",
+  "source": "https://www.youtube.com/watch?v=fO0MZUexdOs",
+  "summary": "An editorial video essay breaking down the editing choices behind a comedy-horror sketch. It combines talking-head analysis with screen-recorded NLE timelines, film examples, and pixelated title graphics.",
+  "cadence": {
+    "average_shot_seconds": 3.8,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0.6,
+    "zoom_punch": "rare",
+    "pace": "natural"
+  },
+  "captions": {
+    "styles": [
+      "bold_outline"
+    ],
+    "case": [
+      "upper"
+    ],
+    "position": [
+      "middle"
+    ],
+    "notes": "No continuous dialogue captions; stylized pixel text appears intermittently for key emphasis words."
+  },
+  "headline": {
+    "styles": [
+      "big_stack",
+      "tag"
+    ],
+    "notes": "Pixelated retro headline fonts used for key principles, section titles, and quotes."
+  },
+  "callouts": {
+    "styles": [
+      "marker_box",
+      "pill_label"
+    ],
+    "motions": [
+      "pop",
+      "fade"
+    ],
+    "notes": "Pixelated arrows, text callouts, and audio clip highlights point directly to timeline elements."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "j_cut",
+      "l_cut"
+    ],
+    "notes": "Predominantly clean hard cuts with audio J/L cuts bridging A-roll commentary and sketch timeline footage."
+  },
+  "end_screen": {
+    "layouts": [
+      "centered_card"
+    ],
+    "tone": "direct"
+  },
+  "rules": [
+    "Switch between A-roll commentary and timeline screen recordings every 3 to 6 seconds",
+    "Color-code timeline tracks and annotate them with onscreen pixel text and arrows",
+    "Use 8-bit pixelated typography for chapter titles, callouts, and quote cards",
+    "Isolate and preview individual audio and visual stems to demonstrate editing choices",
+    "Maintain natural talking-head breathing space without over-aggressive jump cutting",
+    "Intercut talking head explanation with actual timeline playback every 4 to 8 seconds.",
+    "Use large 8-bit monospace titles centered on screen to state conceptual filmmaking rules.",
+    "Play sketch audio stems solo before revealing the full mixed sequence.",
+    "Utilize screen recordings of the editing interface to visually support workflow explanations.",
+    "Maintain natural conversational pacing without hyper-aggressive jump cuts."
+  ],
+  "avoid": [
+    "Full-time karaoke-style subtitles",
+    "Flashy kinetic transitions like whip pans or glitch wipes",
+    "Overusing digital camera punch-ins on the speaker",
+    "Covering timeline demonstrations with excessive graphics",
+    "Full word-for-word karaoke captions.",
+    "Flashy zooms or kinetic camera shakes during A-roll.",
+    "Heavy cinematic color grading over digital software footage."
+  ]
+}

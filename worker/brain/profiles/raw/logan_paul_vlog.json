@@ -1,0 +1,88 @@
+{
+  "name": "logan_paul_vlog",
+  "source": "https://www.youtube.com/watch?v=4EDh6RHLyPQ",
+  "summary": "An educational video editing breakdown combining talking-head commentary with multi-panel timeline demonstrations and vlog B-roll. The editing is characterized by dynamic pacing shifts, precise sound design synchronization, and analytic visual callouts.",
+  "cadence": {
+    "average_shot_seconds": 2.6,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0.65,
+    "zoom_punch": "every_4_6_seconds",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "bold_outline",
+      "clean_shadow"
+    ],
+    "case": [
+      "upper",
+      "sentence"
+    ],
+    "position": [
+      "low",
+      "middle"
+    ],
+    "notes": "Captions primarily appear on B-roll dialogue using clean white fonts with subtle dropshadows, while educational concepts use bold outlined text."
+  },
+  "headline": {
+    "styles": [
+      "big_stack",
+      "white_box",
+      "tag"
+    ],
+    "notes": "Utilizes bold monospace and pixel-font headers for counters and section titles like total money counters."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "banner",
+      "marker_box"
+    ],
+    "motions": [
+      "pop",
+      "fade",
+      "wipe"
+    ],
+    "notes": "Retro 8-bit text tags, bounding tracking boxes, and bold directional arrows highlight technical edit decisions."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "j_cut"
+    ],
+    "notes": "Frequent hidden cuts disguised within camera pans alongside snappy punch cuts and J/L cuts for audio continuity."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line",
+      "centered_card",
+      "bottom_sheet"
+    ],
+    "tone": "playful"
+  },
+  "rules": [
+    "Cut talking-head footage every 2 to 4 seconds or punch in to maintain momentum.",
+    "Use split-screen layouts to present NLE timelines synchronously with playback footage.",
+    "Pair numeric graphic animations with matching rhythmic sound effects such as clicks or cash register chimes.",
+    "Vary cutting cadence intentionally between rapid bursts and sustained hold shots to manipulate tension.",
+    "Use motion tracking boxes to isolate and emphasize narrative focal points.",
+    "Incorporate hidden whip-pan cuts across multiple takes to simulate seamless single-take sequences.",
+    "Support key takeaway points with centered, all-caps monospace lower-third banners.",
+    "Cut precisely on musical beats or impactful voiceover consonants.",
+    "Use a persistent split-screen showing talking head, output monitor, and active NLE timeline.",
+    "Cut every 1.5 to 3 seconds during dynamic breakdown sequences.",
+    "Punch in with rapid zooms on facecam to emphasize comedic or intense reactions.",
+    "Use distinct retro 8-bit text styling for technical labels and annotations."
+  ],
+  "avoid": [
+    "Static talking-head shots lasting longer than 5 seconds without scale changes.",
+    "Flashy decorative transitions like wipes or page peels.",
+    "Unmotivated sound effects unrelated to the visual theme.",
+    "Overlapping captions that obscure key UI elements or faces.",
+    "Uncut real-time footage that drags narrative momentum.",
+    "Slow lingering shots without motion or visual change.",
+    "Overly glossy or cinematic 3D motion graphics.",
+    "Full-time karaoke-style automatic subtitles."
+  ]
+}

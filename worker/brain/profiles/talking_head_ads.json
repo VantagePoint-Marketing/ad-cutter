@@ -1,0 +1,87 @@
+{
+  "name": "talking_head_ads",
+  "source": "synthesised from 12 reference analyses (brain/profiles/raw), 2026-10-02",
+  "summary": "What 12 editing-craft references agree on, cut down to what a single vertical talking-head clip can do (captions, headline, callouts, punch-in zooms, pace, end screen). Left out because the renderer cannot do them yet: B-roll, split screens, timeline/screen footage, picture-in-picture, sound effects, music, J/L cuts.",
+  "cadence": {
+    "average_shot_seconds": 2.8,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0,
+    "zoom_punch": "every_4_6_seconds",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "clean_shadow",
+      "pill_all",
+      "bold_outline"
+    ],
+    "case": [
+      "sentence",
+      "upper"
+    ],
+    "position": [
+      "low",
+      "middle"
+    ],
+    "notes": "All 12 avoid word-by-word karaoke running over the whole video: use calm phrase-level captions and save big impact text for the one line that matters."
+  },
+  "headline": {
+    "styles": [
+      "big_stack",
+      "tag",
+      "white_box"
+    ],
+    "notes": "Big stacked uppercase for punchy hooks; a small tag for a calmer, informative tone."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "marker_box",
+      "scribble"
+    ],
+    "motions": [
+      "pop",
+      "fade",
+      "slide"
+    ],
+    "notes": "Labels and arrows tied to the exact words spoken; pill labels were the most common."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch"
+    ],
+    "notes": "Hard cuts and punch-in zooms only; every reference rejects whip pans, glitches, 3D spins and wipes."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line",
+      "centered_card"
+    ],
+    "tone": "A short, human closing line in the video's own voice (direct, playful or soft sell) with an understated button, not a big sales card."
+  },
+  "rules": [
+    "Change something on screen every 3 to 5 seconds (a punch-in, a callout, a headline change); never leave the talking head static longer than 5 seconds.",
+    "Punch in on punchlines, thesis statements and comedic or emotional beats; alternate wide and tight framing. Use them sparingly for serious topics.",
+    "Match pace to mood: trim dead air hard for energetic or comedic talk; keep natural pauses on serious or emotional lines so they can breathe.",
+    "Emphasise key words, numbers and punchlines with big bold uppercase centred text or a high-contrast pill label, not karaoke on every word.",
+    "Keep captions readable and calm: short phrases, clean shadow or pill style; save loud impact text for the one line that matters.",
+    "Callouts are labels and arrows tied to the exact words spoken: pop in for 2 to 4 seconds, two to five per ad, one at a time.",
+    "Use the headline to state the topic or hook: big stacked uppercase for a punchy hook, a small tag for a calmer, informative tone.",
+    "Keep the speaker's face clear: callouts sit to the side and never cover the face.",
+    "End on a short human closing line in the video's own voice with a small button or line, not a generic sales card.",
+    "Cut on complete sentences or thoughts; open with the strongest line or a question that the ending answers.",
+    "Contrast a burst of fast cutting with one held, quiet moment; a deliberate pause before a key line makes it land.",
+    "Vary the look and rhythm between ads in the same set instead of repeating one formula."
+  ],
+  "avoid": [
+    "Word-by-word karaoke captions running over the whole video (every reference avoids them).",
+    "Static talking-head framing longer than 4 to 6 seconds with no punch-in, cut or overlay.",
+    "Flashy transitions: whip pans, glitches, 3D spins, page turns, light leaks, cheesy wipes, unmotivated dissolves.",
+    "Cluttered frames: stacked stickers, emojis or several overlays at once; give each moment one focal point.",
+    "Covering the speaker's face with graphics.",
+    "Punch-ins on every sentence or constant hyperactive zooming, especially on serious topics.",
+    "Over-trimming breath gaps on emotional lines, or frantic cutting with no room to breathe.",
+    "A generic or off-topic call to action, or sterile corporate lower-thirds."
+  ]
+}

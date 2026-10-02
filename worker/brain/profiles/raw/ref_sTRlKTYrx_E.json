@@ -1,0 +1,81 @@
+{
+  "name": "ref_sTRlKTYrx_E",
+  "source": "https://www.youtube.com/watch?v=sTRlKTYrx_E",
+  "summary": "An informative, essay-style tutorial combining direct-to-camera presentation with timeline screen recordings and demonstrative B-roll. It relies on retro pixel-font title cards, audio-driven J-cuts, and visual guidelines to clearly explain video editing concepts.",
+  "cadence": {
+    "average_shot_seconds": 4.65,
+    "cut_on_beat": false,
+    "b_roll_ratio": 0.225,
+    "zoom_punch": "rare",
+    "pace": "natural"
+  },
+  "captions": {
+    "styles": [
+      "pill_all"
+    ],
+    "case": [
+      "upper"
+    ],
+    "position": [
+      "middle",
+      "low"
+    ],
+    "notes": "Captions appear as retro pixel-text cards enclosed in solid black rectangular blocks for key quotes or chapter titles rather than full continuous transcription."
+  },
+  "headline": {
+    "styles": [
+      "none",
+      "tag"
+    ],
+    "notes": "Monospaced chapter title cards framed inside stark black boxes against colored vignette or blurred backdrops."
+  },
+  "callouts": {
+    "styles": [
+      "banner",
+      "pill_label"
+    ],
+    "motions": [
+      "pop",
+      "fade"
+    ],
+    "notes": "Pixelated pointer cursors, crosshair eyeline guides, and red strike-through X icons illustrate editing dos and don'ts."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "j_cut",
+      "l_cut"
+    ],
+    "notes": "Heavy emphasis on smooth J-cuts with audio leading the visual edit by 2-3 frames, supplemented by clean hard cuts and match cuts."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "soft sell"
+  },
+  "rules": [
+    "Lead incoming visuals with dialog audio by 2 to 4 frames (J-cut)",
+    "Use solid black rectangular cards with pixel-art font for section headers",
+    "Maintain strict eyeline consistency across jump cuts using frame guides",
+    "Support editing arguments with actual NLE timeline screengrabs",
+    "Cut aggressively to B-roll to prevent monologue fatigue",
+    "Keep camera framing natural without hyperactive digital zoom punches",
+    "Use pixelated cursor overlays and crosshairs to highlight technical elements",
+    "Keep camera framing exclusively on the speaker.",
+    "Cut strictly on natural sentence or thought completions.",
+    "Alternate framings between medium-wide and tight punch-in.",
+    "Let ambient and vocal pauses breathe without hard audio truncation.",
+    "Maintain subtle, emotional background music under dialogue."
+  ],
+  "avoid": [
+    "Rapid-fire karaoke animated subtitles",
+    "Excessive zoom-in punch cuts on every sentence",
+    "Fast trendy motion graphics and kinetic typography",
+    "Aggressive whip pans or flashy transition plugins",
+    "Leaving talking head uninterrupted for more than 10 seconds",
+    "Fast kinetic motion graphics",
+    "Burned-in animated captions",
+    "B-roll footage inserts"
+  ]
+}

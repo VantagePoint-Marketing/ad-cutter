@@ -1,0 +1,74 @@
+{
+  "name": "music_saves_videos",
+  "source": "https://www.youtube.com/watch?v=CwQi9k-0yNY",
+  "summary": "An educational video essay examining the impact of popular needle drops on film and content editing. It features fast-paced pacing with frequent timeline screen captures, reaction picture-in-picture windows, and beat-matched audio-visual demos.",
+  "cadence": {
+    "average_shot_seconds": 3.3,
+    "cut_on_beat": true,
+    "b_roll_ratio": 0.675,
+    "zoom_punch": "frequent",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [],
+    "case": [],
+    "position": [],
+    "notes": "No continuous spoken dialogue captions; only sporadic graphic titles and source film subtitles appear."
+  },
+  "headline": {
+    "styles": [
+      "big_stack",
+      "tag"
+    ],
+    "notes": "Bold, centered uppercase text pops on screen to introduce key concepts and topic chapters."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "marker_box"
+    ],
+    "motions": [
+      "pop",
+      "fade"
+    ],
+    "notes": "Minimalist onscreen labels and arrows highlight timeline details and UI elements."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "j_cut"
+    ],
+    "notes": "Dominated by hard cuts with frequent audio J/L cuts to preview music cues before visual cuts."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "direct"
+  },
+  "rules": [
+    "Cut to timeline or NLE playback within 3 seconds of introducing an editing problem.",
+    "Punch in on the A-roll speaker to emphasize strong emotional reactions.",
+    "Place speaker reaction cam in a picture-in-picture corner during full-screen playback.",
+    "Sync visual impacts and cut points directly to musical beat drops.",
+    "Use J-cuts to lead into music transitions ahead of video clips.",
+    "Punch in to closer focal length on punchy remarks or comedic beats",
+    "Display editing timeline beneath playback footage to show technical process",
+    "Nest creator webcam reaction in top corner during playback tests",
+    "Cut video previews sharply to music beats and audio stingers",
+    "Use clean screen capture showing cursor navigation for software and web demos",
+    "Keep talking head background softly blurred with colored rim lighting",
+    "Emphasize key takeaways with bold, white, centered uppercase typography"
+  ],
+  "avoid": [
+    "No full-length burned-in animated karaoke subtitles.",
+    "No decorative stock transitions like light leaks or whip zooms.",
+    "No static shots longer than 6 seconds without a camera punch or cutaway.",
+    "No unmotivated background music during audio comparison segments.",
+    "Full-screen word-by-word karaoke captions",
+    "Aggressive whip pans or flashy distortion transitions",
+    "Loud sound effect whooshes on every graphic element",
+    "Static wide shots longer than 6 seconds without a camera reframing"
+  ]
+}

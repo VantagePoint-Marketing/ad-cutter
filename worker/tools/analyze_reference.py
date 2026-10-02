@@ -38,6 +38,9 @@ def main(argv=None) -> int:
     ap.add_argument("--minutes", type=float, default=15.0, help="video length (default 15), for windows and costs")
     ap.add_argument("--list", type=Path, help="a file of `link [minutes] [name]` lines to analyse in one go")
     ap.add_argument("--force", action="store_true", help="with --list: redo profiles that already exist")
+    ap.add_argument("--active", action="store_true",
+                    help="save straight into the profiles the planner reads (default: the raw/ archive, to be "
+                         "consolidated into one curated profile)")
     ap.add_argument("--max-paid", type=float, help="most dollars the paid fallback may use in this run")
     ap.add_argument("--config", type=Path, default=ad_cutter.HERE / "config.json")
     ap.add_argument("--estimate", action="store_true", help="show the plan and the paid worst case, run nothing")
@@ -49,7 +52,8 @@ def main(argv=None) -> int:
 
     if args.list:
         items = styleprofile.parse_list(args.list.read_text(encoding="utf-8"))
-        items = [(u, m, n) for u, m, n in items if args.force or not (styleprofile.PROFILE_DIR / f"{n}.json").exists()]
+        items = [(u, m, n) for u, m, n in items if args.force or not any(
+            (d / f"{n}.json").exists() for d in (styleprofile.PROFILE_DIR, styleprofile.RAW_DIR))]
     elif args.source and args.name:
         items = [(args.source, args.minutes, args.name)]
     else:
@@ -105,7 +109,7 @@ def main(argv=None) -> int:
                       "reset daily) or raise --max-paid.")
                 break
             continue
-        path = styleprofile.save(profile)
+        path = styleprofile.save(profile, styleprofile.PROFILE_DIR if args.active else styleprofile.RAW_DIR)
         if info["route"] == "paid":
             paid_n += 1
             spent += info["cost"]

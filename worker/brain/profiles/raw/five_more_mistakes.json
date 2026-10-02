@@ -1,0 +1,66 @@
+{
+  "name": "five_more_mistakes",
+  "source": "https://www.youtube.com/watch?v=QR8LxximqWI",
+  "summary": "A fast-paced educational video essay analyzing YouTube editing rules with practical timeline demonstrations. The edit is characterized by seamless dialogue jump cuts, 8-bit retro title cards, and illustrative B-roll comparisons.",
+  "cadence": {
+    "average_shot_seconds": 2.3,
+    "cut_on_beat": true,
+    "b_roll_ratio": 0.55,
+    "zoom_punch": "frequent",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [],
+    "case": [],
+    "position": [],
+    "notes": "No continuous speech captions are used; text is reserved strictly for headlines, callouts, and technical labels."
+  },
+  "headline": {
+    "styles": [
+      "white_box",
+      "tag"
+    ],
+    "notes": "Retro 8-bit monospace text inverted on solid black rectangular banners to introduce numbered sections."
+  },
+  "callouts": {
+    "styles": [
+      "pill_label",
+      "banner"
+    ],
+    "motions": [
+      "pop",
+      "fade"
+    ],
+    "notes": "Monochrome pixel-styled annotation boxes with simple arrows point out edit points directly on NLE timeline captures."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "j_cut",
+      "l_cut"
+    ],
+    "notes": "Tight audio-led jump cuts and J-cuts with subtle framing punch-ins between takes to conceal cut seams."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "Casual and conversational sign-off inviting audience discussion."
+  },
+  "rules": [
+    "Cut conversational pauses aggressively, overlapping incoming speech slightly as J-cuts.",
+    "Alternate talking-head zoom levels between cuts to avoid static framing.",
+    "Introduce major topics using centered pixelated font over black title blocks.",
+    "Accompany technical explanations with real timeline UI capture and pointer arrows.",
+    "Stack side-by-side or vertical split-screen clips when demonstrating visual comparisons.",
+    "Curate dynamic music beds that shift genres to match topic mood changes.",
+    "Insert illustrative B-roll or movie clips within 3 seconds of mentioning a concept."
+  ],
+  "avoid": [
+    "Dead air or unmotivated pauses between dialogue lines.",
+    "Full-screen burn-in captioning for all spoken words.",
+    "Flashy modern transition packs like hyper-zooms, light leaks, or glitch effects.",
+    "Unmotivated B-roll montages that lack narrative context."
+  ]
+}

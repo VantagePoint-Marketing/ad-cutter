@@ -110,8 +110,9 @@ For each ad:
    - `palette`: four hex colours `accent`, `accent2`, `ink`, `paper`. `paper` is the main text colour and `ink` its
      outline, so keep them strongly contrasting. Pick `accent` and `accent2` to suit the mood and the footage, not a
      default yellow and red.
-   - `punch_ins`: 0 to 3 quick zoom-ins (`zoom` between 1.05 and 1.2) on the words that matter most, each anchored to
-     a word range `from`..`to` inside one segment of that ad. None is fine.
+   - `punch_ins`: 0 to 8 quick zoom-ins (`zoom` between 1.05 and 1.2) on the words that matter most, each anchored to
+     a word range `from`..`to` inside one segment of that ad. On a long single-take clip, a punch-in every 3 to 5
+     seconds keeps it moving; for a serious, calm ad use few or none.
    - `end_screen`: the `line` (at most 70 characters) and the `button` (at most 28 characters) are yours to write for
      this video, along with the `layout`, `motion` and `seconds` (1.5 to 4). They must follow the same claims rules as the
      headline.

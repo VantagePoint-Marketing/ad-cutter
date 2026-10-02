@@ -1,0 +1,72 @@
+{
+  "name": "stock_footage_commercial",
+  "source": "https://www.youtube.com/watch?v=qxPABRWoYfg",
+  "summary": "A fast-paced editing breakdown video demonstrating how to produce a million-dollar commercial on a low budget using asset packs and stock footage. It is characterized by frequent punch-ins on talking heads, hand-drawn paper sketch overlays, animated brush text, and rhythmic montage cutting.",
+  "cadence": {
+    "average_shot_seconds": 1.9,
+    "cut_on_beat": true,
+    "b_roll_ratio": 0.65,
+    "zoom_punch": "frequent",
+    "pace": "tight"
+  },
+  "captions": {
+    "styles": [
+      "clean_shadow"
+    ],
+    "case": [
+      "sentence"
+    ],
+    "position": [
+      "low"
+    ],
+    "notes": "Crisp white sans-serif subtitles with a subtle drop shadow displayed in short natural phrases during skits and narrative beats."
+  },
+  "headline": {
+    "styles": [
+      "big_stack"
+    ],
+    "notes": "Large handwritten or brush-stroke titles rendered over textured film-burn or crumpled paper slates."
+  },
+  "callouts": {
+    "styles": [
+      "scribble",
+      "marker_box"
+    ],
+    "motions": [
+      "pop",
+      "wipe"
+    ],
+    "notes": "Hand-drawn chalk/pencil doodles on crumpled paper backgrounds combined with giant yellow pop-in dollar amounts."
+  },
+  "transitions": {
+    "types": [
+      "hard_cut",
+      "zoom_punch",
+      "whip_pan",
+      "dip_to_black"
+    ],
+    "notes": "Jump-cut punch-ins for talking head emphasis; stylized film grit, light leaks, and kinetic whip transitions for montage sequences."
+  },
+  "end_screen": {
+    "layouts": [
+      "minimal_line"
+    ],
+    "tone": "playful"
+  },
+  "rules": [
+    "Punch in on the A-roll speaker every few seconds to reset visual interest.",
+    "Introduce budget constraints and key figures with oversized yellow pop-in text.",
+    "Cut rapid montages on musical downbeats and percussive transients.",
+    "Use stop-motion crumpled paper sketches to visualize conceptual workflows.",
+    "Layer neon glow strokes or graphic wraps over footage to unify mismatched stock clips.",
+    "Frame timeline tutorials with an over-the-shoulder picture-in-picture webcam.",
+    "Bookend commercial sequences with matching master shots to create narrative closure."
+  ],
+  "avoid": [
+    "Static wide talking-head shots lasting longer than 4 seconds.",
+    "Stock corporate lower-thirds or sterile corporate motion graphics.",
+    "Dead air or pauses between spoken dialogue.",
+    "Unmotivated cross-dissolves.",
+    "Overly clinical color grading without added texture or film overlays."
+  ]
+}

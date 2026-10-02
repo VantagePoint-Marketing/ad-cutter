@@ -23,7 +23,8 @@ import gemini_free
 import llm
 
 HERE = Path(__file__).resolve().parent
-PROFILE_DIR = HERE / "brain" / "profiles"
+PROFILE_DIR = HERE / "brain" / "profiles"      # the profiles the planner reads (consolidated, curated)
+RAW_DIR = PROFILE_DIR / "raw"                  # one analysis per reference video; kept as evidence, not read
 MAX_LOCAL_BYTES = 60 * 1024 * 1024
 MAX_PROMPT_CHARS = 8000
 ZOOM_PUNCH = ("none", "rare", "every_4_6_seconds", "frequent")
@@ -202,10 +203,10 @@ def _render(p: dict) -> str:
     def lst(xs):
         return ", ".join(xs) if xs else "any"
 
-    lines = [f"### {p['name']}" + (f" (from {p['source']})" if p["source"] else ""), p["summary"],
+    lines = [f"### {p['name']}" + (f" ({p['source']})" if p["source"] else ""), p["summary"],
              f"- Cadence: average shot {c['average_shot_seconds']} s, cuts on the beat: "
              f"{'yes' if c['cut_on_beat'] else 'no'}, B-roll {round(c['b_roll_ratio'] * 100)}%, zoom punches: "
-             f"{c['zoom_punch'].replace('_', ' ')}, pace: {c['pace']}",
+             f"{c['zoom_punch'].replace('4_6', '4-6').replace('_', ' ')}, pace: {c['pace']}",
              f"- Captions: {lst(cap['styles'])}; case {lst(cap['case'])}; position {lst(cap['position'])}. {cap['notes']}",
              f"- Headlines: {lst(head['styles'])}. {head['notes']}",
              f"- Callouts: {lst(call['styles'])}; motion {lst(call['motions'])}. {call['notes']}",

@@ -69,7 +69,7 @@ END_LAYOUTS = {
 }
 
 DEFAULT_PALETTE = {"accent": "#FFE11A", "accent2": "#E3261C", "ink": "#111111", "paper": "#FFFFFF"}
-MAX_PUNCH_INS = 5
+MAX_PUNCH_INS = 10
 END_SECONDS = (1.5, 4.0)
 CALLOUT_BANDS = (540, 700, 860, 1000, 1130)     # candidate top positions (px) for callouts, inside Meta's safe zone
 
