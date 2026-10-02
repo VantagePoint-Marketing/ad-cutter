@@ -1,0 +1,20 @@
+{
+  "_source": "Robert's Google Drive, Agent OS / The Art of Video Editing / 02_Agentic_Style_Profile.json (2026-10-02)",
+  "style_name": "hillier_smith_premium_documentary",
+  "pacing_rules": {
+    "intro_hook_duration_ms": 60000,
+    "allow_dead_space": true,
+    "pause_beat_frequency": "after_heavy_exposition",
+    "pause_beat_duration_ms": [1500, 3000]
+  },
+  "visual_transitions": {
+    "world_building": ["dolly_zoom_out", "slow_track_in"],
+    "flashback": {"filter": "black_and_white_with_film_grain", "keep_subject_in_color": true},
+    "conflict_shifts": ["abrupt_hard_cut", "letterbox_aspect_ratio_shift"]
+  },
+  "sound_design": {
+    "abrupt_silence_triggers": ["intimate_dialogue", "grounded_reality_shift"],
+    "music_contrasts": {"chaos_visuals": "haunting_classical_or_old_timey", "epic_reveals": "ethereal_ambient_drones"},
+    "foley_layers": ["bass_impact_on_cut", "reverb_on_key_actions"]
+  }
+}

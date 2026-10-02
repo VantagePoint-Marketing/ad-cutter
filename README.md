@@ -16,11 +16,18 @@ How it works:
 2. **Planning (Gemini Pro, via OpenRouter):** Gemini watches a small proxy of the footage, reads the transcript and
    the request, and plans the ads: segments, headline, callouts, caption fixes and claims to review. It picks words
    by index, so it can't invent timestamps, and it says how it read the request.
-3. **Cutting and rendering:** every cut edge is snapped to the gap between words, pauses are trimmed, and audio is
-   levelled to -14 LUFS. HyperFrames renders the captions, headline, callouts and CTA.
+3. **Cutting and rendering:** every cut edge is snapped to the gap between words, pauses are trimmed (how hard
+   depends on the ad's pace), and audio is levelled to -14 LUFS. HyperFrames renders the captions, headline,
+   callouts, punch-in zooms and end screen. **No two ads share a fixed template:** for each ad Gemini designs the
+   whole look (pace, caption style and size and position, headline style, callout style and sides, motion,
+   colours, and an end screen with its own call-to-action text) from a menu in `worker/design.py`. The model only
+   picks names and short text; the code renders them, so no model-written markup reaches the render browser.
 4. **Checking:** each finished ad is transcribed again and compared with its captions.
 
 - The pipeline lives in `worker/` (the processing service on Railway and the local command line are the same code).
+- The agent's **brain** is every `.md` / `.json` file in `worker/brain/` (editing craft notes from Robert's Drive,
+  plus a short-ads playbook). They go into the planning prompt as guidance; edit or add files there to change
+  what it knows, no code change needed. `03_short_ads_playbook.md` is a draft awaiting Robert's review.
 - The reference library lives in `worker/library.py`: while no ads are being made, Gemini studies the videos in
   `worker/library/foundation.txt` (the craft of editing) by their YouTube links on Google's free tier and keeps
   checked notes. The page's Library section shows what it has learned. Next: a playbook built from those notes,

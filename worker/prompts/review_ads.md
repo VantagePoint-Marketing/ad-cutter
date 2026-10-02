@@ -20,7 +20,8 @@ REQUEST>>>
 - A speech-to-caption match of {match} was measured by a separate tool (1.0 means every caption word was heard).
 
 The video is a vertical phone clip: a headline at the top, word-by-word captions, a few marker callouts, and a
-closing call-to-action card in the last few seconds (that card is automatic; do not score it).
+closing call-to-action screen in the last few seconds. Each ad has its own designed look, so do not
+penalise a style for being unusual; judge whether it reads clearly and fits the footage and the request.
 
 ## What to check
 

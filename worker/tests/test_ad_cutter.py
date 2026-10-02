@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -53,7 +54,7 @@ def test_transcript_for_prompt_numbers_every_word():
 
 def test_build_prompt_fills_placeholders(tmp_path):
     p = ac.build_prompt({**CFG, "ad_count": 3}, words_from("hello world"))
-    assert "{" not in p.split("## Output")[0] and "#1 world" in p
+    assert not re.search(r"\{[a-z_]+\}", p.split("## Output")[0]) and "#1 world" in p
 
 
 # ---------------------------------------------------------------- energy & edges
@@ -130,8 +131,18 @@ def test_to_out_maps_segments_played_out_of_source_order():
 
 # ---------------------------------------------------------------- plan validation
 
+GOOD_DESIGN = {"mood": "calm", "pacing": "breathing",
+               "captions": {"style": "clean_shadow", "position": "low", "case": "sentence", "size": "medium",
+                            "words_per_group": 3},
+               "headline": {"style": "tag", "position": "top"}, "headline_motion": "slide",
+               "callouts": {"style": "scribble"}, "callout_motion": "wipe",
+               "end_screen": {"layout": "bottom_sheet", "motion": "slide", "line": "Ask us", "button": "Tap",
+                              "seconds": 2.5}}
+
+
 def make_plan(**ad_over):
-    ad = {"name": "A", "headline": "H", "segments": [{"from": 0, "to": 59}], "callouts": [], "primary_text": "p"}
+    ad = {"name": "A", "headline": "H", "segments": [{"from": 0, "to": 59}], "callouts": [], "primary_text": "p",
+          "design": json.loads(json.dumps(GOOD_DESIGN))}
     ad.update(ad_over)
     return {"summary": "s", "caption_fixes": [], "highlight_words": [], "ads": [ad]}
 
@@ -183,7 +194,7 @@ def test_caption_groups_break_on_pause_and_length():
 def test_compose_escapes_text_and_marks_layers():
     ad = {"name": "A & B", "headline": "Is <this> 3 days late?"}
     words = [{"w": "3", "s": 0.1, "e": 0.4, "key": True}, {"w": "days", "s": 0.4, "e": 0.7, "key": False}]
-    doc = ac.compose(ad, words, [(0.2, 2.5, "Entry:\n~3 days late")], 5.0, CFG)
+    doc = ac.compose(ad, words, [(0.2, 2.5, "Entry:\n~3 days late", "left")], 5.0, CFG)
     assert "Is &lt;this&gt; 3 days late?" in doc and "See &lt;it&gt;" in doc
     assert "Entry:<br>~3 days late" in doc
     assert doc.count("data-layout-allow-overlap") == 4
@@ -248,7 +259,7 @@ def test_validate_plan_keeps_callout_that_began_on_a_skipped_filler():
     ws = words_from("but we talk " + " ".join(["w"] * 57))
     plan = make_plan(callouts=[{"from": 0, "to": 2, "text": "ok"}])
     out, _ = ac.validate_plan(plan, ws, CFG)
-    assert out["ads"][0]["callouts"] == [{"from": 1, "to": 2, "text": "ok"}]
+    assert out["ads"][0]["callouts"] == [{"from": 1, "to": 2, "text": "ok", "side": "right"}]
 
 
 def test_quietest_handles_times_past_the_end():
@@ -302,10 +313,11 @@ def test_write_notes_shows_the_self_check_for_each_ad(tmp_path):
     review = {"scores": {"hook": 2, "cuts": 4, "request_fit": 3}, "verdict": "Slow start.", "look": True,
               "problems": [{"at_s": 3.0, "area": "hook", "what": "Nothing happens.", "fix": "Cut the first 2 s."},
                            {"at_s": None, "area": "request_fit", "what": "Too long.", "fix": "Trim."}]}
-    report = [{"k": 1, "ad": {"name": "Lag", "headline": "H", "callouts": []}, "len": 30.0, "check": "passed",
-               "file": "a.mp4", "review": review},
-              {"k": 2, "ad": {"name": "Other", "headline": "H", "callouts": []}, "len": 30.0, "check": "passed",
-               "file": "b.mp4", "review": None}]
+    look = ac.design.sanitize(GOOD_DESIGN, ("x", "y"))[0]
+    report = [{"k": 1, "ad": {"name": "Lag", "headline": "H", "callouts": [], "design": look}, "len": 30.0,
+               "check": "passed", "file": "a.mp4", "review": review},
+              {"k": 2, "ad": {"name": "Other", "headline": "H", "callouts": [], "design": look}, "len": 30.0,
+               "check": "passed", "file": "b.mp4", "review": None}]
     ac.write_notes(tmp_path, "A.MOV", plan, [], report, 0.1, {**CFG, "plan_model": "m"}, "")
     text = (tmp_path / "Review Notes.md").read_text(encoding="utf-8")
     assert "**Self-check:** LOOK AT THIS: hook 2/5, cuts 4/5, request fit 3/5" in text

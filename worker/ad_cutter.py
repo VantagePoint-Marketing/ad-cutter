@@ -40,6 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
+import brain
+import design
 import llm
 import review
 from budget import BudgetExceeded, LocalLedger
@@ -288,13 +290,16 @@ def clip_lines(clips: list[dict], words: list[dict]) -> str:
 
 
 def build_prompt(cfg: dict, words: list[dict], brief: str = "", clips: list[dict] | None = None,
-                 team_notes: str = "") -> str:
+                 team_notes: str = "", recent_looks: str = "") -> str:
     b = cfg["brand"]
     clips = clips or [{"name": "the video", "start": 0.0, "seconds": words[-1]["e"] if words else 0.0}]
     brief = brief.strip()[:MAX_BRIEF]
     return (HERE / "prompts" / "plan_ads.md").read_text(encoding="utf-8").format(
         brief=brief or "(No request was given. Use your judgement and the defaults.)",
         team_notes=team_notes.strip() or "(Nothing yet.)",
+        craft_notes=brain.load(), design_menu=design.menu_text(),
+        recent_looks=recent_looks.strip() or "(None yet.)",
+        brand_cta_line=b["cta_line"], brand_cta_button=b["cta_button"],
         clip_count_text="one clip" if len(clips) == 1 else f"{len(clips)} clips joined in order",
         clips=clip_lines(clips, words), ad_count=cfg["ad_count"], max_ad_count=cfg.get("ad_count_max", 6),
         brand_name=b["name"], brand_product=b["product"], audience=b["audience"],
@@ -408,7 +413,14 @@ def validate_plan(plan: dict, words: list[dict], cfg: dict, clips: list[dict] | 
                 notes.append(f"Ad {k}: dropped callout {c.get('text')!r} (too long for the screen).")
             else:
                 good.append(c)
+        for i, c in enumerate(good):
+            c["side"] = c["side"] if c.get("side") in design.CALLOUT_SIDES else ("right", "left")[i % 2]
         ad["callouts"] = good
+        ad["design"], design_notes = design.sanitize(ad.get("design"), brand_cta(cfg), f"Ad {k} design")
+        notes += design_notes
+    sigs = [design.signature(a["design"]) for a in ads]
+    if len(set(sigs)) < len(sigs):
+        notes.append("Two ads in this job share the same look (captions, headline, callouts, end screen and colour).")
     return plan, notes
 
 
@@ -487,15 +499,16 @@ def refine_segment(cfg: dict, words: list[dict], seg: dict, en: Energy, wav: Pat
     return a, b
 
 
-def keep_intervals(bounds: list[tuple[float, float]], en: Energy) -> tuple[list[Interval], float]:
-    """Kept source intervals in play order, with long pauses shortened."""
+def keep_intervals(bounds: list[tuple[float, float]], en: Energy, pause_min: float = PAUSE_MIN,
+                   pause_keep: float = PAUSE_KEEP) -> tuple[list[Interval], float]:
+    """Kept source intervals in play order, with pauses longer than `pause_min` shortened to `pause_keep`."""
     pieces, pos = [], 0.0
     for n, (lo, hi) in enumerate(bounds):
         cur = lo
-        for a, b in en.gaps(lo, hi, PAUSE_MIN):
+        for a, b in en.gaps(lo, hi, pause_min):
             if a - cur > 0:
-                pieces.append((cur, a + PAUSE_KEEP, n))
-            cur = b - PAUSE_KEEP
+                pieces.append((cur, a + pause_keep, n))
+            cur = b - pause_keep
         pieces.append((cur, hi, n))
     out = []
     for a, b, n in pieces:
@@ -542,12 +555,12 @@ def render_body(full: Path, ivs: list[Interval], body_len: float, cta: float, de
 
 # ---------------------------------------------------------------- 5. compose captions & overlays
 
-def caption_groups(words: list[dict]) -> list[list[dict]]:
-    """1-3 word caption groups, broken on pauses and length."""
+def caption_groups(words: list[dict], max_words: int = 3, max_chars: int = 16) -> list[list[dict]]:
+    """Caption groups of up to `max_words` words, broken on pauses and length (the design sets both limits)."""
     groups, cur = [], []
     for w in words:
-        if cur and (len(cur) >= 3 or w["s"] - cur[-1]["e"] > 0.35
-                    or sum(len(x["w"]) + 1 for x in cur) + len(w["w"]) > 16):
+        if cur and (len(cur) >= max_words or w["s"] - cur[-1]["e"] > 0.35
+                    or sum(len(x["w"]) + 1 for x in cur) + len(w["w"]) > max_chars):
             groups.append(cur)
             cur = []
         cur.append(w)
@@ -574,10 +587,34 @@ def ad_words(disp: list[dict], ad: dict, ivs: list[Interval], bounds, body_len: 
     return out
 
 
-def compose(ad: dict, words: list[dict], callouts: list[tuple[float, float, str]], body_len: float,
-            cfg: dict) -> str:
+def brand_cta(cfg: dict) -> tuple[str, str]:
+    return cfg["brand"]["cta_line"], cfg["brand"]["cta_button"]
+
+
+END_TARGETS = {"centered_card": ["#cta .pill"], "bottom_sheet": ["#cta .sheet"],
+               "big_question": ["#cta .line", "#cta .pill"], "split_bar": ["#cta .bar", "#cta .pill"],
+               "minimal_line": ["#cta .line"]}
+
+
+def place_punch_ins(spans: list[tuple[float, float, float]], body_len: float) -> list[tuple[float, float, float]]:
+    """Punch-in zooms need at least half a second, may not overlap, and end before the end screen."""
+    out, last_end = [], 0.0
+    for a, b, z in sorted(spans):
+        a, b = max(a, last_end + 0.1), min(b, body_len - 0.1)
+        if b - a >= 0.5:
+            out.append((a, b, z))
+            last_end = b
+    return out
+
+
+def compose(ad: dict, words: list[dict], callouts: list[tuple], body_len: float, cfg: dict,
+            punch: list[tuple[float, float, float]] = ()) -> str:
+    """The ad's overlay document. Every visual choice comes from ad["design"] (see design.py). `callouts` are
+    (start, end, text, side) in output time; `punch` is (start, end, zoom)."""
+    d = ad.get("design") or design.sanitize({}, brand_cta(cfg))[0]
     els, js = [], []
-    groups = caption_groups(words)
+    max_words, max_chars = design.caption_limits(d)
+    groups = caption_groups(words, max_words, max_chars)
     for gi, g in enumerate(groups):
         gs = g[0]["s"]
         ge = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else body_len
@@ -585,7 +622,7 @@ def compose(ad: dict, words: list[dict], callouts: list[tuple[float, float, str]
         spans = []
         for wi, w in enumerate(g):
             wid = f"g{gi}w{wi}"
-            t = html.escape(w["w"].upper())
+            t = html.escape(w["w"])
             layer = "p" if w["key"] else "y"
             spans.append(f'<span class="w" id="{wid}"><span class="b" data-layout-allow-overlap>{t}</span>'
                          f'<span class="{layer}" data-layout-allow-overlap>{t}</span></span>')
@@ -597,22 +634,25 @@ def compose(ad: dict, words: list[dict], callouts: list[tuple[float, float, str]
         els.append(f'<div class="cap clip" id="g{gi}" data-start="{gs:.3f}" data-duration="{ge - gs:.3f}" '
                    f'data-track-index="3">{"".join(spans)}</div>')
         js.append(f'tl.fromTo("#g{gi}", {{opacity: 0, y: 14}}, {{opacity: 1, y: 0, duration: 0.1}}, {gs:.3f});')
-    for ci, (a, b, text) in enumerate(callouts):
-        body = "<br>".join(html.escape(x) for x in text.split("\n"))
-        els.append(f'<div class="co clip" id="co{ci}" data-start="{a:.3f}" data-duration="{b - a:.3f}" '
-                   f'data-track-index="2"><svg class="arrow" viewBox="0 0 120 140">'
-                   f'<path d="M70 132 C 62 96, 58 60, 44 18" /><path d="M22 40 C 32 30, 38 22, 44 16 C 52 26, 60 34, '
-                   f'70 40" /></svg><div class="co-box">{body}</div></div>')
-        js.append(f'tl.fromTo("#co{ci}", {{opacity: 0, scale: 0.55, rotation: -10}}, '
-                  f'{{opacity: 1, scale: 1, rotation: -4, duration: 0.35, ease: "back.out(2)"}}, {a:.3f});')
+    bands = design.free_bands(d)
+    for ci, (a, b, text, side) in enumerate(callouts):
+        els.append(design.callout_html(d, ci, text, side, bands[ci % len(bands)], a, b - a))
+        js.append(design.motion_in(f"#co{ci}", d["callout_motion"], a, side))
         js.append(f'tl.to("#co{ci}", {{opacity: 0, duration: 0.2}}, {max(a, b - 0.2):.3f});')
-    cta = float(cfg["cta_seconds"])
+    for a, b, zoom in punch:
+        js.append(f'tl.to("#a-roll", {{scale: {zoom}, duration: 0.3, ease: "power2.out"}}, {a:.3f});')
+        js.append(f'tl.to("#a-roll", {{scale: 1, duration: 0.3, ease: "power2.inOut"}}, {max(a + 0.3, b):.3f});')
+    end = d["end_screen"]
+    cta = float(end["seconds"])
+    end_js = [design.motion_in(sel, end["motion"], body_len + 0.2 + 0.25 * i)
+              for i, sel in enumerate(END_TARGETS[end["layout"]])]
     tpl = string.Template((HERE / "template" / "composition.html").read_text(encoding="utf-8"))
     return tpl.substitute(
         title=html.escape(ad["name"]), total=f"{body_len + cta:.3f}", body=f"{body_len:.3f}",
-        cta_start=f"{body_len:.3f}", cta_dur=f"{cta:.3f}", cta_pill_at=f"{body_len + 0.25:.3f}",
-        headline=html.escape(ad["headline"]), cta_line=html.escape(cfg["brand"]["cta_line"]),
-        cta_button=html.escape(cfg["brand"]["cta_button"]),
+        cta_start=f"{body_len:.3f}", cta_dur=f"{cta:.3f}", design_css=design.css(d),
+        headline_html=design.headline_html(d, ad["headline"]), end_html=design.end_html(d),
+        headline_motion=design.motion_in("#headline", d["headline_motion"], 0, "center"),
+        end_motion="\n      ".join(end_js),
         elements="\n      ".join(els), timeline="\n      ".join(js))
 
 
@@ -734,12 +774,15 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     else:
         progress("planning", "Gemini is watching the footage")
         log.info("asking %s to watch the footage and plan the ads", cfg["plan_model"])
-        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes)
+        prompt = build_prompt(cfg, words, brief, media["clips"], team_notes,
+                              design.recent_looks(work.parent / "design_history.jsonl"))
         raw_plan, usage = call_gemini(cfg, client, prompt, media["proxy"], media["duration"])
         cost = usage.get("cost")
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
         log.info("plan received (cost $%s)", cost)
     plan, notes = validate_plan(json.loads(json.dumps(raw_plan)), words, cfg, media["clips"])
+    if cost is not None:    # a new plan: remember its looks so the next job does not repeat them
+        design.remember(work.parent / "design_history.jsonl", [a["design"] for a in plan["ads"]])
     disp = display_words(words, plan)
 
     out_dir.mkdir(parents=True, exist_ok=True)     # re-runs share the day's folder; files are never overwritten
@@ -779,10 +822,10 @@ def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> li
     next callout (they share one screen position). Callouts left with under 0.5 s are dropped."""
     out = []
     next_start = body_len - 0.05
-    for a, b, text in sorted(spans, reverse=True):   # last first, so each only yields to callouts that are kept
+    for a, b, *rest in sorted(spans, reverse=True):   # last first, so each only yields to callouts that are kept
         b = min(max(b, a + 2.0), next_start - (0.1 if out else 0.0))
         if b - a >= 0.5:
-            out.append((a, b, text))
+            out.append((a, b, *rest))
             next_start = a
     return out[::-1]
 
@@ -790,24 +833,40 @@ def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> li
 def build_ad(cfg: dict, k: int, ad: dict, words: list[dict], disp: list[dict], en: Energy, media: dict,
              work: Path, out_dir: Path, entry: dict, render_it: bool) -> None:
     bounds = [refine_segment(cfg, words, s, en, media["wav"], work) for s in ad["segments"]]
-    ivs, body_len = keep_intervals(bounds, en)
+    d = ad["design"]
+    ivs, body_len = keep_intervals(bounds, en, *design.pace(d))
     if not ivs or body_len < 1.0:
         raise AdCutterError("nothing left to play after cutting")
-    entry["len"] = body_len + float(cfg["cta_seconds"])
+    cta_secs = float(d["end_screen"]["seconds"])
+    entry["len"] = body_len + cta_secs
     project = work / f"ad{k}"
     project.mkdir(exist_ok=True)
-    render_body(media["full"], ivs, body_len, float(cfg["cta_seconds"]), project / "body.mp4")
+    render_body(media["full"], ivs, body_len, cta_secs, project / "body.mp4")
     caps = ad_words(disp, ad, ivs, bounds, body_len)
+
+    def out_span(first: int, last: int) -> tuple[float, float] | None:
+        """Output-time span of source words first..last, if they sit inside one of the ad's segments."""
+        n = next((n for n, s in enumerate(ad["segments"]) if s["from"] <= first and last <= s["to"]), None)
+        if n is None:
+            return None
+        lo, hi = bounds[n]
+        a = to_out(min(max(words[first]["s"], lo), hi), ivs, n)
+        b = to_out(min(max(words[last]["e"], lo), hi), ivs, n)
+        return (a, b) if a is not None and b is not None else None
+
     spans = []
     for c in ad["callouts"]:
-        n = next(n for n, s in enumerate(ad["segments"]) if s["from"] <= c["from"] and c["to"] <= s["to"])
-        lo, hi = bounds[n]
-        a = to_out(min(max(words[c["from"]]["s"], lo), hi), ivs, n)
-        b = to_out(min(max(words[c["to"]]["e"], lo), hi), ivs, n)
-        if a is not None and b is not None:
-            spans.append((a, b, c["text"]))
-    (project / "index.html").write_text(compose(ad, caps, place_callouts(spans, body_len), body_len, cfg),
-                                        encoding="utf-8")
+        sp = out_span(c["from"], c["to"])
+        if sp:
+            spans.append((*sp, c["text"], c["side"]))
+    punch = []
+    for p in d["punch_ins"]:
+        sp = out_span(p["from"], p["to"]) if p["to"] < len(words) else None
+        if sp:
+            punch.append((*sp, p["zoom"]))
+    (project / "index.html").write_text(
+        compose(ad, caps, place_callouts(spans, body_len), body_len, cfg, place_punch_ins(punch, body_len)),
+        encoding="utf-8")
     # fonts and GSAP travel with the project: the render browser has no internet access
     shutil.copytree(HERE / "template" / "vendor", project / "vendor", dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("licenses", "*.md"))
@@ -843,6 +902,7 @@ def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report:
               f"- **Stage:** {ad.get('funnel_stage', '')}. {ad.get('angle', '')}",
               f"- **Headline:** {ad['headline']}",
               f"- **Callouts:** " + ("; ".join(c['text'].replace(chr(10), ' / ') for c in ad['callouts']) or "none"),
+              f"- **Look:** {ad['design']['mood'] or 'no mood given'}. {design.describe(ad['design'])}",
               f"- **Layout check:** {(e['check'].splitlines() or ['not run'])[0]}"]
         if e.get("error"):
             L.append(f"- **FAILED:** {e['error']}")
