@@ -337,6 +337,7 @@ def selftest() -> int:
     check("working copy chain", prepare_chain_works)
     check("ad body chain", body_chain_renders)
     check("self-check copy", review_copy_works)
+    check("hdr conversion", hdr_chain_works)
     check("whisper model", whisper_loads_offline)
     check("browser has no internet", browser_is_offline)
     check("render", smoke_render)
@@ -401,6 +402,22 @@ def body_chain_renders() -> str:
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return ", ".join(sizes)
+
+
+def hdr_chain_works() -> str:
+    """Run the HDR-to-standard conversion (ad_cutter.hdr_to_sdr) on a generated clip that is tagged as iPhone HDR (HLG).
+    If this ffmpeg has no zscale filter the check says so; real HDR clips then use the simpler tag-only fallback."""
+    work = Path(worker_config()["work_dir"]) / "selftest-hdr"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    try:
+        dest = work / "out.mp4"
+        ac.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=540x960:rate=30:duration=1",
+                "-vf", "format=yuv420p10le,setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=tv,"
+                       + ac.hdr_to_sdr("arib-std-b67"), "-c:v", "libx264", "-preset", "ultrafast", str(dest)], timeout=120)
+        return f"HLG converted to standard video ({dest.stat().st_size // 1024} KB)"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def review_copy_works() -> str:

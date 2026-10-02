@@ -139,3 +139,29 @@ def test_rejects_truncated_mp4(tmp_path):
     bad.write_bytes(good.read_bytes()[:200])      # keeps the ftyp header, loses the rest
     with pytest.raises(sm.UnsafeMedia):
         sm.check_upload(bad)
+
+
+# ---------------------------------------------------------------- HDR video (iPhone HDR is HLG)
+
+def has_encoder(name: str) -> bool:
+    res = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True)
+    return name in res.stdout
+
+
+def make_hlg(path: Path, seconds: float = 2.0) -> Path:
+    """A 10-bit HLG clip tagged the way an iPhone writes HDR video."""
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=320x568:rate=30:duration={seconds}",
+                    "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-vf", "format=yuv420p10le",
+                    "-c:v", "libx265", "-x265-params",
+                    "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:range=limited:log-level=error",
+                    "-tag:v", "hvc1", "-c:a", "aac", "-shortest", str(path)], check=True)
+    return path
+
+
+needs_hlg = pytest.mark.skipif(not (shutil.which("ffmpeg") and has_encoder("libx265")), reason="needs ffmpeg with libx265")
+
+
+@needs_hlg
+def test_hdr_video_is_recognised_and_ordinary_video_is_not(tmp_path):
+    assert sm.check_upload(make_hlg(tmp_path / "hlg.mp4")).hdr == "arib-std-b67"
+    assert sm.check_upload(make_video(tmp_path / "ok.mp4")).hdr is None

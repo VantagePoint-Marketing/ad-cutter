@@ -25,6 +25,8 @@ DEMUXERS = {"mov": "mov,mp4,m4a,3gp,3g2,mj2", "matroska": "matroska,webm"}
 MOV_ATOMS = {b"ftyp", b"styp", b"sidx", b"moof", b"moov", b"mdat", b"wide", b"free", b"skip", b"junk", b"uuid", b"pnot"}
 MAX_SIDE = 4096             # 4K phone footage fits; anything bigger is refused (decompression-bomb guard)
 EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+# transfer functions of HDR video (iPhone HDR is HLG; some cameras and apps write PQ)
+HDR_TRANSFERS = {"arib-std-b67", "smpte2084"}
 
 # Variables child processes may see. Everything else (keys, tokens, DB URLs, bucket credentials) is dropped.
 _PASS = {
@@ -82,6 +84,7 @@ class MediaInfo:
     duration: float
     width: int
     height: int
+    hdr: str | None = None      # the HDR transfer function (e.g. "arib-std-b67"), None for ordinary video
 
 
 def check_upload(path: Path, max_seconds: float = 600.0, min_seconds: float = 1.0) -> MediaInfo:
@@ -93,7 +96,7 @@ def check_upload(path: Path, max_seconds: float = 600.0, min_seconds: float = 1.
     try:
         res = subprocess.run(
             ["ffprobe", "-v", "error", *ffmpeg_input(demuxer), "-show_entries",
-             "format=format_name,duration:stream=codec_type,width,height", "-of", "json", str(path)],
+             "format=format_name,duration:stream=codec_type,width,height,color_transfer", "-of", "json", str(path)],
             capture_output=True, text=True, env=clean_env(), timeout=120)
     except subprocess.TimeoutExpired as err:
         raise UnsafeMedia("the video took too long to read (it may be damaged)") from err
@@ -120,4 +123,5 @@ def check_upload(path: Path, max_seconds: float = 600.0, min_seconds: float = 1.
         if not (0 < w <= MAX_SIDE and 0 < h <= MAX_SIDE):
             raise UnsafeMedia(f"the video size {w}x{h} is not supported (up to 4K)")
     width, height = int(video[0].get("width") or 0), int(video[0].get("height") or 0)
-    return MediaInfo(demuxer, duration, width, height)
+    hdr = next((v.get("color_transfer") for v in video if v.get("color_transfer") in HDR_TRANSFERS), None)
+    return MediaInfo(demuxer, duration, width, height, hdr)

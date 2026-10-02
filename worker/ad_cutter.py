@@ -91,7 +91,20 @@ def ffmpeg_to(dest: Path, args: list[str], timeout: float = 30 * 60) -> None:
     tmp.replace(dest)
 
 
-def working_copy_args(srcs: list[Path], demuxers: list[str], seconds: list[float]) -> list[str]:
+def hdr_to_sdr(transfer: str, tonemap: bool = True) -> str:
+    """The filters that turn an HDR clip (iPhone HDR is HLG, some cameras write PQ) into ordinary video, as one
+    comma-separated chain ending in 8-bit yuv420p. The render tool takes a completely different, memory-hungry HDR
+    path (about 16 GB for a 30 second ad) when it sees HDR tags, so nothing HDR may reach it. `tonemap` does it
+    properly (linear light, gamut and tone mapping); without it the pixels are kept and only the tags are changed,
+    a flatter look that needs no zscale filter."""
+    if tonemap:
+        return (f"zscale=tin={transfer}:min=2020_ncl:pin=2020:rin=limited:t=linear:npl=100,format=gbrpf32le,"
+                "zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+    return "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=yuv420p"
+
+
+def working_copy_args(srcs: list[Path], demuxers: list[str], seconds: list[float], hdr: list[str | None] | None = None,
+                      tonemap: bool = True) -> list[str]:
     """One ffmpeg pass: every clip is scaled and cropped to 1080x1920 at 30 fps with 48 kHz stereo sound, and the
     clips are joined in order. Each input keeps its forced demuxer and protocol whitelist, and -t caps it at its
     own checked length (plus a frame or two), so a header that understates a file's length cannot stretch the job
@@ -101,12 +114,14 @@ def working_copy_args(srcs: list[Path], demuxers: list[str], seconds: list[float
     for n, (src, demuxer, secs) in enumerate(zip(srcs, demuxers, seconds)):
         args += [*ffmpeg_input(demuxer), "-t", f"{secs + 0.25:.3f}", "-i", str(src)]
         chain.append(f"[{n}:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,"
-                     f"setsar=1,fps={FPS},format=yuv420p[v{n}]")
+                     f"setsar=1,fps={FPS},{hdr_to_sdr(hdr[n], tonemap) if hdr and hdr[n] else 'format=yuv420p'}[v{n}]")
         chain.append(f"[{n}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a{n}]")
         labels.append(f"[v{n}][a{n}]")
     chain.append(f"{''.join(labels)}concat=n={len(srcs)}:v=1:a=1[v][a]")
+    tags = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"] \
+        if hdr and any(hdr) else []                  # the result must say it is ordinary video
     return [*args, "-filter_complex", ";".join(chain), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset",
-            "fast", "-crf", "17", "-g", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "fast", "-crf", "17", "-g", str(FPS), *tags, "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-movflags", "+faststart"]
 
 
@@ -133,7 +148,15 @@ def prepare(srcs: Path | list[Path], work: Path, max_seconds: float = 600.0, nam
                             "of footage per job")
     if not full.exists():
         log.info("making the 1080x1920 working copy from %s clip(s)", len(srcs))
-        ffmpeg_to(full, working_copy_args(srcs, [i.demuxer for i in infos], seconds))
+        demuxers, hdrs = [i.demuxer for i in infos], [i.hdr for i in infos]
+        slow = 3600 if any(hdrs) else 30 * 60
+        try:
+            ffmpeg_to(full, working_copy_args(srcs, demuxers, seconds, hdrs), slow)
+        except subprocess.CalledProcessError:
+            if not any(hdrs):
+                raise
+            log.warning("the HDR-to-standard conversion failed; keeping the pixels and changing only the colour tags")
+            ffmpeg_to(full, working_copy_args(srcs, demuxers, seconds, hdrs, tonemap=False), slow)
     if not wav.exists():
         ffmpeg_to(wav, ["-i", str(full), "-vn", "-ac", "1", "-ar", "16000"])
     if not proxy.exists():
@@ -152,7 +175,8 @@ def prepare(srcs: Path | list[Path], work: Path, max_seconds: float = 600.0, nam
     for name, secs in zip(names, seconds):
         clips.append({"name": name, "start": round(start, 3), "seconds": round(secs, 3)})
         start += secs
-    return {"full": full, "wav": wav, "proxy": proxy, "duration": duration, "clips": clips}
+    return {"full": full, "wav": wav, "proxy": proxy, "duration": duration, "clips": clips,
+            "hdr": [c.hdr is not None for c in infos]}
 
 
 # ---------------------------------------------------------------- 2. transcribe
@@ -740,6 +764,10 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
         plan_file.write_text(json.dumps(raw_plan, indent=2), encoding="utf-8")
         log.info("plan received (cost $%s)", cost)
     plan, notes = validate_plan(json.loads(json.dumps(raw_plan)), words, cfg, media["clips"])
+    for n, was_hdr in enumerate(media.get("hdr") or []):
+        if was_hdr:
+            notes.append(f"Clip {n + 1} ({media['clips'][n]['name']}) is HDR video. It was converted to standard "
+                         "colours, so it may look a little different from how it looks on your phone.")
     disp = display_words(words, plan)
 
     out_dir.mkdir(parents=True, exist_ok=True)     # re-runs share the day's folder; files are never overwritten

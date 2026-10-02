@@ -397,3 +397,66 @@ def test_prepare_names_the_bad_clip(tmp_path):
     bad.write_bytes(b"not a video")
     with pytest.raises(ac.AdCutterError, match=r"clip 2 \(B\.MOV\)"):
         ac.prepare([good, bad], tmp_path / "work", names=["A.MOV", "B.MOV"])
+
+
+# ---------------------------------------------------------------- HDR clips (the render tool cannot take them)
+
+def test_an_hdr_clip_gets_the_conversion_chain_and_standard_tags_and_an_ordinary_clip_does_not():
+    plain = ac.working_copy_args([Path("a.mov")], ["mov"], [10.0])
+    assert "zscale" not in " ".join(plain) and "-color_trc" not in plain          # ordinary footage: nothing changed
+    hdr = ac.working_copy_args([Path("a.mov"), Path("b.mov")], ["mov", "mov"], [10.0, 10.0], ["arib-std-b67", None])
+    fc = hdr[hdr.index("-filter_complex") + 1]
+    assert fc.count("zscale=tin=arib-std-b67") == 1 and "tonemap=tonemap=hable" in fc      # only the HDR clip is converted
+    assert "[1:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1,fps=30,format=yuv420p[v1]" in fc
+    assert hdr[hdr.index("-color_trc") + 1] == "bt709" and hdr[hdr.index("-colorspace") + 1] == "bt709"
+    fallback = ac.working_copy_args([Path("a.mov")], ["mov"], [10.0], ["smpte2084"], tonemap=False)
+    fc = fallback[fallback.index("-filter_complex") + 1]
+    assert "zscale" not in fc and "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709" in fc
+
+
+def probe_tags(path):
+    res = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=pix_fmt,color_transfer,color_primaries,color_space", "-of", "json", str(path)],
+                         capture_output=True, text=True, check=True)
+    return json.loads(res.stdout)["streams"][0]
+
+
+needs_hlg = pytest.mark.skipif(not (shutil.which("ffmpeg") and "libx265" in subprocess.run(
+    ["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout), reason="needs ffmpeg with libx265")
+
+
+@needs_hlg
+def test_prepare_turns_an_hdr_clip_into_standard_video_and_says_so(tmp_path):
+    from tests.test_safe_media import make_hlg
+    clip = make_hlg(tmp_path / "hlg.mp4", 3.0)
+    media = ac.prepare(clip, tmp_path / "work", max_seconds=60, names=["iPhone.MOV"])
+    assert media["hdr"] == [True]
+    tags = probe_tags(media["full"])
+    assert (tags["pix_fmt"], tags["color_transfer"], tags["color_primaries"]) == ("yuv420p", "bt709", "bt709")
+
+
+@needs_hlg
+def test_if_the_conversion_filter_is_missing_the_clip_still_becomes_standard_video(tmp_path, monkeypatch):
+    from tests.test_safe_media import make_hlg
+    clip = make_hlg(tmp_path / "hlg.mp4", 3.0)
+    real, used = ac.ffmpeg_to, []
+
+    def flaky(dest, args, timeout=1800):
+        used.append("zscale" in " ".join(args))
+        if used[-1]:
+            raise subprocess.CalledProcessError(1, "ffmpeg")        # as if this ffmpeg had no zscale filter
+        return real(dest, args, timeout)
+    monkeypatch.setattr(ac, "ffmpeg_to", flaky)
+    media = ac.prepare(clip, tmp_path / "work", max_seconds=60)
+    assert used[:2] == [True, False]
+    assert probe_tags(media["full"])["color_transfer"] == "bt709"
+
+
+def test_a_failing_ordinary_clip_is_not_retried_as_hdr(tmp_path, monkeypatch):
+    clip = make_clip(tmp_path / "a.mp4", 2.0)
+
+    def broken(dest, args, timeout=1800):
+        raise subprocess.CalledProcessError(1, "ffmpeg")
+    monkeypatch.setattr(ac, "ffmpeg_to", broken)
+    with pytest.raises(subprocess.CalledProcessError):
+        ac.prepare(clip, tmp_path / "work", max_seconds=60)
