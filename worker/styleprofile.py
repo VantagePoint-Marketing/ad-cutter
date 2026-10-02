@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import difflib
 from collections import Counter
 from pathlib import Path
 
@@ -277,9 +278,15 @@ def merge_profiles(parts: list[dict]) -> dict:
     for key, limit in (("rules", 12), ("avoid", 8)):
         seen: list[str] = []
         for p in parts:
-            seen += [x for x in p[key] if x.lower() not in {y.lower() for y in seen}]
+            seen += [x for x in p[key] if not any(similar(x, y) for y in seen)]
         out[key] = seen[:limit]
     return out
+
+
+def similar(a: str, b: str, threshold: float = 0.8) -> bool:
+    """The same rule worded (almost) identically, ignoring case and punctuation. True paraphrases are not caught."""
+    norm = lambda t: " ".join(re.findall(r"[a-z0-9]+", t.lower()))  # noqa: E731
+    return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio() >= threshold
 
 
 def reply_to_profile(text: str, name: str, source: str) -> tuple[dict, list[str]]:

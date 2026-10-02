@@ -313,3 +313,12 @@ def test_the_shipped_config_lists_the_free_ladder_best_first_and_a_paid_cap():
     assert ref["free_models"][0] == "gemini-3.8-flash" and ref["paid_allowance_usd"] > 0
     assert all(gemini_free.MODEL_NAME.fullmatch(m) for m in ref["free_models"])
     assert design.menu_text()                     # the free prompt is built from the same menus as the paid one
+
+
+def test_rules_worded_almost_identically_are_merged_but_different_rules_are_kept():
+    assert styleprofile.similar("Never use word-by-word captions.", "never use word by word captions")
+    assert not styleprofile.similar("Cut every 1.5 to 3 seconds.", "Use scale punch-ins on comedic beats.")
+    a = prof(1.0, True, "rare", "tight", ["pill_all"], ["Cut every 2 seconds.", "Zoom on key words."])
+    b = prof(1.0, True, "rare", "tight", ["pill_all"], ["cut every 2 seconds", "Hold shots under four seconds."])
+    assert styleprofile.merge_profiles([a, b])["rules"] == ["Cut every 2 seconds.", "Zoom on key words.",
+                                                            "Hold shots under four seconds."]

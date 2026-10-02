@@ -17,6 +17,7 @@ ids (`?si=...`) are dropped before a link is sent. Free-tier content can be used
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -41,6 +42,7 @@ def main(argv=None) -> int:
     ap.add_argument("--config", type=Path, default=ad_cutter.HERE / "config.json")
     ap.add_argument("--estimate", action="store_true", help="show the plan and the paid worst case, run nothing")
     args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     cfg = ad_cutter.load_config(args.config)
     settings = cfg.get("reference") or {}
     paid_allowance = args.max_paid if args.max_paid is not None else float(settings.get("paid_allowance_usd", 5.0))
@@ -83,7 +85,8 @@ def main(argv=None) -> int:
                              ledger=LocalLedger(Path(cfg["work_dir"]) / "spend-ledger.jsonl", cfg["monthly_budget_usd"]))
               if paid_key else None)
     paid_left, spent, failed, free_n, paid_n = paid_allowance, 0.0, 0, 0, 0
-    for src, minutes, name in items:
+    for n, (src, minutes, name) in enumerate(items, 1):
+        print(f"[{n}/{len(items)}] {name}: watching ({minutes:g} min)...", flush=True)
         try:
             profile, notes, info = styleprofile.analyze_best(cfg, ring, client, src, name, minutes,
                                                              paid_left=paid_left, log=print)

@@ -233,10 +233,11 @@ def test_saved_profiles_reach_the_planning_prompt(tmp_path):
     assert len(styleprofile.load_all(tmp_path, limit=20)) == 20
 
 
-def test_the_prompt_carries_the_style_profiles_section():
+def test_the_prompt_carries_the_style_profiles_section(monkeypatch):
     cfg = {"brand": BRAND, "ad_count": 2, "ad_min_seconds": 20, "ad_max_seconds": 75}
+    monkeypatch.setattr(styleprofile, "load_all", lambda: "### rap_style\n- Cadence: fast")   # not the real folder
     p = ac.build_prompt(cfg, [{"w": "hi", "s": 0.0, "e": 0.3}])
-    assert "## Style profiles" in p and "(No style profiles yet.)" in p
+    assert "## Style profiles" in p and "### rap_style" in p
 
 
 # ---------------------------------------------------------------- links and lists
