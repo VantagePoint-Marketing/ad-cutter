@@ -575,7 +575,7 @@ def job_view(job_id: str) -> dict:
 
 # where each worker stage sits on the progress bar (percent), and the minutes a whole job usually takes
 STAGE_PERCENT = {"starting": 5, "downloading": 8, "preparing": 18, "transcribing": 28, "planning": 45,
-                 "rendering": 45, "checking": 88, "repairing": 91, "uploading": 97}
+                 "rendering": 45, "checking": 88, "repairing": 95, "uploading": 97}
 STAGE_SPAN = {"rendering": 42, "checking": 8}       # these two split their span across the ads (detail "ad 2 of 3")
 
 

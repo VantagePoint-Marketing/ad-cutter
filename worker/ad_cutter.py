@@ -826,9 +826,9 @@ def repair_loop(cfg: dict, client: llm.OpenRouter, plan: dict, report: list[dict
                          spent=lambda: spent, started=started)
     try:
         return repair.run_rounds([e for e in report if e.get("file")], ctx)
-    except (llm.LLMError, BudgetExceeded, AdCutterError, OSError, subprocess.SubprocessError) as err:   # noqa: BLE001 - the ads are already built
-        log.error("repair loop stopped: %s", err)
-        return 0.0, [f"The repair loop stopped early ({type(err).__name__}); the ads built so far were kept."]
+    except Exception as err:   # noqa: BLE001 - the ads are already built; Stop and Cancelled are BaseException and pass through
+        log.exception("repair loop stopped")
+        return ctx.loop_spent, [f"The repair loop stopped early ({type(err).__name__}); the ads built so far were kept."]
 
 
 def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> list[tuple[float, float, str]]:

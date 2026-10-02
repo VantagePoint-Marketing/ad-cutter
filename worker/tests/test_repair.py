@@ -246,7 +246,7 @@ def test_an_ai_failure_or_budget_stop_is_a_quiet_no_change(tmp_path, monkeypatch
     monkeypatch.setattr(repair, "extract_frames", lambda *a: [])
     for err in (llm.LLMError("cut off"), BudgetExceeded("no room")):
         ad, cost, what = repairer(FakeClient(err), tmp_path)(designed_entry(), review(["captions"], captions=2), "cosmetic", ["captions"])
-        assert ad is None and cost == 0.0 and "failed" in what
+        assert ad is None and "failed" in what and (cost == 0.0) == isinstance(err, BudgetExceeded)
 
 
 def test_a_structural_repair_uses_the_planning_model_validates_the_ad_and_keeps_the_design(tmp_path):
@@ -307,3 +307,46 @@ def test_new_look_options_move_the_captions_and_callouts_and_the_original_is_unc
                                   {"segments": [{"from": 0, "to": 5}]}, WORDS)
     assert d["caption_y"] == "standard" and d["callout_zone"] == "right_mid" and len(notes) == 2
     assert "`caption_y`" in dk.options_text() and "`callout_zone`" in dk.options_text()
+
+
+# ---------------------------------------------------------------- review fixes (code-reviewer, 2026-10-02)
+
+def test_the_compliance_guard_covers_the_meta_copy_spelled_out_numbers_and_money_words():
+    spoken = dk.spoken_tokens(["we", "capture", "three", "days", "of", "the", "move"])
+    ok = {"headline": "Capture three days of the move", "callouts": [{"text": "3 days"}], "primary_text": "See how it works. Tap learn more."}
+    assert repair.unsafe_text(ok, spoken) is None
+    for field, text, expect in (("primary_text", "Guaranteed 20% monthly returns, risk-free", "promise"), ("headline", "Make ten thousand dollars a week", "number word"),
+                                ("headline", "Earn more every day", "money wording"), ("primary_text", "Join now and build real wealth", "money wording"),
+                                ("callouts", [{"text": "Up twenty percent"}], "number word"), ("primary_text", "Beat 87 traders", "number")):
+        ad = {**ok, field: text}
+        assert expect in (repair.unsafe_text(ad, spoken) or ""), (field, text)
+    said = dk.spoken_tokens(["the", "profit", "was", "ten", "thousand"])
+    assert repair.unsafe_text({"headline": "Profit of ten thousand", "callouts": [], "primary_text": ""}, said) is None       # said, so allowed
+
+
+def test_a_structural_repair_keeps_the_original_meta_copy_whatever_the_model_writes(tmp_path):
+    new = {"ad": {"funnel_stage": "cold", "angle": "better", "headline": "Why indicators run late", "segments": [{"from": 0, "to": 9}],
+                  "callouts": [], "primary_text": "Guaranteed returns, risk-free"}}
+    ad, cost, what = repairer(FakeClient(new), tmp_path)(designed_entry(), review(["hook"], hook=2), "structural", ["hook"])
+    assert ad is not None and ad["primary_text"] == "p" and "primary" not in what
+
+
+def test_a_failed_repair_call_is_counted_at_its_worst_case_and_a_budget_refusal_costs_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(repair, "extract_frames", lambda *a: [])
+    r = repairer(FakeClient(llm.LLMError("cut off"), BudgetExceeded("no room")), tmp_path)
+    ad, cost, what = r(designed_entry(), review(["captions"], captions=2), "cosmetic", ["captions"])
+    assert ad is None and cost > 0 and "failed" in what
+    ad2, cost2, _ = r(designed_entry(), review(["captions"], captions=2), "cosmetic", ["captions"])
+    assert ad2 is None and cost2 == 0.0
+
+
+def test_an_unexpected_error_in_the_loop_keeps_the_built_ads_and_the_money_spent_so_far(monkeypatch):
+    def boom(entries, ctx):
+        ctx.loop_spent = 0.37
+        raise KeyError("odd")
+    monkeypatch.setattr(repair, "run_rounds", boom)
+    cfg = {"plan_effort": "high", "plan_model": "m", "ad_min_seconds": 20, "ad_max_seconds": 75}
+    media = {"clips": [{"name": "c", "start": 0.0, "seconds": 10.0}]}
+    cost, notes = ac.repair_loop(cfg, None, {"ads": []}, [{"k": 1, "file": "x.mp4"}], WORDS, [], None, media, Path("."), Path("."), "", "",
+                                 lambda *a, **k: None, 0.0, spent=0.0)
+    assert cost == 0.37 and "stopped early (KeyError)" in notes[0]

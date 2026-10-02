@@ -88,15 +88,29 @@ def accept(old: dict, new: dict | None, areas: list[str]) -> tuple[bool, str]:
     return True, "improved " + ", ".join(f"{a.replace('_', ' ')} {o[a]}→{n[a]}" for a in areas if n[a] > o[a])
 
 
+# words that are numbers or money talk: the loop may use them only if the speaker said them in this ad
+NUMBER_WORDS = set(design_kit.SPELLED) | {"thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million",
+                                          "billion", "percent", "percentage", "dozen", "double", "triple", "tenfold"}
+MONEY_WORDS = {"profit", "profits", "profitable", "returns", "earn", "earnings", "income", "rich", "wealth", "wealthy", "millionaire", "money", "cash",
+               "dollar", "dollars", "gains", "winning", "winners", "payout", "riches"}
+
+
 def unsafe_text(ad: dict, spoken: set[str]) -> str | None:
-    """Why a reworked ad's headline or callouts must be refused, or None: a promise-style phrase, or a number the speaker never said."""
-    texts = [str(ad.get("headline", ""))] + [str(c.get("text", "")) for c in ad.get("callouts", []) if isinstance(c, dict)]
+    """Why a reworked ad's text must be refused, or None. Covers the headline, the callouts and the Meta copy: a promise-style phrase is
+    never allowed; a number (digits or spelled out) or a money word is allowed only if the speaker said it."""
+    texts = [str(ad.get("headline", ""))] + [str(c.get("text", "")) for c in ad.get("callouts", []) if isinstance(c, dict)] + [str(ad.get("primary_text", ""))]
     for t in texts:
         if RISKY.search(t):
             return f"it used promise-style wording ({t[:40]!r})"
         for tok in design_kit.tokens(t):
-            if any(ch.isdigit() for ch in tok) and tok not in spoken:
+            if tok in spoken:
+                continue
+            if any(ch.isdigit() for ch in tok):
                 return f"it used a number the speaker did not say ({tok})"
+            if tok in NUMBER_WORDS:
+                return f"it used a number word the speaker did not say ({tok})"
+            if tok in MONEY_WORDS:
+                return f"it used money wording the speaker did not say ({tok})"
     return None
 
 
@@ -111,6 +125,7 @@ class Context:
     discard: Callable[[dict], None]                                                     # delete an entry's output file
     commit: Callable[[int, dict], None]                                                 # the accepted ad becomes the plan's ad
     progress: Callable[..., None] = lambda stage, detail="": None
+    loop_spent: float = 0.0                                                             # what the loop itself has spent (kept even if it stops early)
     spent: Callable[[], float] = lambda: 0.0                                            # total job cost so far, retries included
     now: Callable[[], float] = time.monotonic
     started: float = field(default_factory=time.monotonic)
@@ -145,6 +160,7 @@ def run_rounds(entries: list[dict], ctx: Context) -> tuple[float, list[str]]:
             e["history"].append(step)
             new_ad, cost, what = ctx.repair(e, e["review"], scope, areas)
             total += cost
+            ctx.loop_spent = total
             step["what"] = what
             if new_ad is None:
                 step["why"] = "no usable change was proposed"
@@ -170,6 +186,7 @@ def run_rounds(entries: list[dict], ctx: Context) -> tuple[float, list[str]]:
             ctx.progress("repairing", f"round {rnd} of {rounds}: ad {k}, checking the change")
             new_review, rcost = ctx.review_one(new_e)
             total += rcost
+            ctx.loop_spent = total
             ok, why = accept(e["review"], new_review, areas)
             step["why"] = why
             if ok:
@@ -261,16 +278,20 @@ class Repairer:
     def __init__(self, cfg: dict, client, words: list[dict], transcript: str, clips_text: str, validate_plan, work: Path, brief: str = ""):
         self.cfg, self.client, self.words, self.transcript, self.clips_text = cfg, client, words, transcript, clips_text
         self.validate_plan, self.work, self.brief = validate_plan, work, brief
+        self.pending_est = 0.0
 
     def __call__(self, entry: dict, review: dict, scope: str, areas: list[str]) -> tuple[dict | None, float, str]:
         try:
             return self._cosmetic(entry, review, areas) if scope == "cosmetic" else self._structural(entry, review, areas)
         except (llm.LLMError, BudgetExceeded) as err:
-            return None, 0.0, f"the AI call failed: {str(err)[:80]}"
+            # a failed call may still have been billed: count it at its worst case (a refused budget never reached the provider)
+            return None, 0.0 if isinstance(err, BudgetExceeded) else self.pending_est, f"the AI call failed: {str(err)[:80]}"
 
     def _json(self, model: str, content: list[dict], label: str, est_tokens: int, reasoning: str) -> tuple[dict, float]:
+        self.pending_est = llm.estimate_cost(model, est_tokens, 6000)
         raw, usage = self.client.chat_json(model, content, route="zdr", label=label, est_input_tokens=est_tokens, max_tokens=6000,
                                            reasoning=reasoning, attempts=1, timeout=240)
+        self.pending_est = 0.0
         return raw, float(usage.get("cost") or 0.0)
 
     def _cosmetic(self, entry: dict, review: dict, areas: list[str]) -> tuple[dict | None, float, str]:
@@ -305,7 +326,8 @@ class Repairer:
         new = raw.get("ad") if isinstance(raw, dict) else None
         if not isinstance(new, dict):
             return None, cost, "the reworked ad was not usable"
-        candidate = {**{key: new.get(key) for key in current}, "name": ad["name"], "design": ad.get("design")}
+        # the Meta copy (primary_text) is never rewritten by the loop: the self-check cannot see it, so nobody would check what changed
+        candidate = {**{key: new.get(key) for key in current}, "name": ad["name"], "primary_text": ad.get("primary_text", ""), "design": ad.get("design")}
         try:
             plan, notes = self.validate_plan({"ads": [candidate]}, self.words, self.cfg, None)
         except Exception as err:                           # noqa: BLE001 - AdCutterError and friends: the rework is simply not usable
