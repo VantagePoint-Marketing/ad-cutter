@@ -148,7 +148,8 @@ def build_result(run: dict, uploaded: dict[int, str], notes_key: str | None) -> 
                     "callouts": [c["text"] for c in ad.get("callouts", [])], "primary_text": ad.get("primary_text", ""),
                     "seconds": round(e["len"], 1), "layout_check": (e["check"].splitlines() or ["not run"])[0],
                     "verify": e.get("verify"), "file_key": uploaded.get(e["k"]), "error": e.get("error"),
-                    "spoken": e.get("spoken", ""), "review": e.get("review"), "design": e.get("design")})
+                    "spoken": e.get("spoken", ""), "review": e.get("review"), "design": e.get("design"),
+                    "history": e.get("history") or [], "needs_person": bool(e.get("needs_person"))})
     return {"summary": plan.get("summary", ""), "response_to_request": plan.get("response_to_request", ""),
             "ads": ads, "claims_to_review": plan.get("claims_to_review", []),
             "pipeline_notes": run["notes"], "notes_key": notes_key, "planning_cost": run["cost"],
@@ -178,6 +179,15 @@ def recent_designs(conn) -> list[dict]:
     except Exception as err:   # noqa: BLE001 - a missing hint must not stop a job
         log.warning("could not read the recent designs: %s", err)
         return []
+
+
+def job_cost(conn, job_id: str) -> float:
+    try:
+        row = conn.execute("select cost_usd from jobs where id = %s", (job_id,)).fetchone()
+        return float(row[0] or 0.0) if row else 0.0
+    except Exception as err:   # noqa: BLE001 - an unreadable cost must not stop the job; the cap then counts only this attempt
+        log.warning("job %s: could not read its cost so far (%s)", job_id, type(err).__name__)
+        return 0.0
 
 
 def record_comparisons(conn_factory, job_id: str, ref_ids: list[int], report: list[dict]) -> None:
@@ -262,6 +272,7 @@ def run_job(conn_factory, bucket: Bucket, job: dict, cfg: dict) -> str:
             if opts.get("model") is not None:
                 run_cfg["plan_model"] = model_id
             run_cfg["plan_effort"] = effort
+        run_cfg["job_cost_before"] = db(job_cost, job_id)               # what earlier attempts of this job already spent counts against the cap
         request_text = str(opts.get("request") or opts.get("brief") or opts.get("note") or "")
         refs_text, ref_ids = hub_context.fetch_references(Hub(conn_factory), request_text)
         run = ac.run_pipeline(run_cfg, srcs, work / "pipeline", work / "out", client,

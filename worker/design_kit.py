@@ -77,11 +77,15 @@ CARD_KINDS = {"stat": "a big number or short figure with a label (every word mus
               "compare": "two short phrases side by side, written 'A|B', up to 3 words each",
               "kinetic": "one to three spoken words very large, for emphasis"}
 SPEAKER_POSITIONS = ("upper", "middle", "lower")
+CAPTION_Y = {"standard": 0, "high": -70, "low": 50}        # moves the caption band from its style's own place (pixels)
+CALLOUT_ZONES = {"right_mid": ("right", 740), "right_high": ("right", 520), "right_low": ("right", 880),
+                 "left_mid": ("left", 740), "left_high": ("left", 520), "left_low": ("left", 880)}
 CARD_TOP = {"lower": 1330, "upper": 470}      # where cards sit; they avoid the captions (about 1075-1250) and Meta's bottom bar
 MAX_CARDS, CARD_MIN_S, CARD_MAX_S, CARD_GAP_S = 4, 1.5, 4.0, 0.4
 CLASSIC_PALETTE = {"accent": "#FFE11A", "plate": "#fff", "mark": "#E3261C"}
 CLASSIC = {"motion": "confident", "font": "montserrat", "palette": dict(CLASSIC_PALETTE), "caption_style": "pop_pill",
            "headline_style": "plate", "callout_style": "marker", "end_style": "classic", "cards": [], "speaker_position": "middle",
+           "caption_y": "standard", "callout_zone": "right_mid",
            "observations": "", "why": ""}
 SIGNATURE_KEYS = ("caption_style", "headline_style", "callout_style", "end_style", "font", "accent")
 
@@ -226,6 +230,8 @@ def validate_design(raw, ad: dict, words: list[dict], brand_name: str = "") -> t
     d["callout_style"] = choice(raw, "callout_style", CALLOUT_STYLES, CLASSIC["callout_style"], notes)
     d["end_style"] = choice(raw, "end_style", END_STYLES, CLASSIC["end_style"], notes)
     d["speaker_position"] = choice(raw, "speaker_position", SPEAKER_POSITIONS, CLASSIC["speaker_position"], notes)
+    d["caption_y"] = choice(raw, "caption_y", CAPTION_Y, CLASSIC["caption_y"], notes)
+    d["callout_zone"] = choice(raw, "callout_zone", CALLOUT_ZONES, CLASSIC["callout_zone"], notes)
     d["palette"], pnotes = clean_palette(raw.get("palette"))
     notes += pnotes
     segments = [s for s in ad.get("segments", []) if isinstance(s, dict)]
@@ -317,7 +323,7 @@ CAPTION_EXTRA = {
     "clean": "",
 }
 CALLOUT_CSS = string.Template('''/* Hand-drawn marker callouts, middle-right of the frame */
-      .co { position: absolute; right: 60px; top: 740px; width: 620px; display: flex; flex-direction: column;
+      .co { position: absolute; ${co_side}: 60px; top: ${co_top}px; width: 620px; display: flex; flex-direction: column;
         align-items: center; transform-origin: 50% 100%; }
       .co .arrow { width: 130px; height: 150px; margin-bottom: -8px; margin-right: 200px; }
       .co .arrow path { fill: none; stroke: ${mark}; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
@@ -379,7 +385,8 @@ def resolve(design: dict | None, with_cards: bool = False) -> dict:
     pal = d["palette"]
     cap = CAPTION_STYLES[d["caption_style"]]
     v = {"font_family": family, "w_heavy": w_heavy, "w_mid": w_mid, "accent": pal["accent"], "accent_ink": ink_for(pal["accent"]),
-         "plate": pal["plate"], "plate_ink": ink_for(pal["plate"]), "mark": pal["mark"], "cap_top": cap["top"], "cap_size": cap["size"],
+         "plate": pal["plate"], "plate_ink": ink_for(pal["plate"]), "mark": pal["mark"], "cap_top": cap["top"] + CAPTION_Y[d["caption_y"]], "cap_size": cap["size"],
+         "co_side": CALLOUT_ZONES[d["callout_zone"]][0], "co_top": CALLOUT_ZONES[d["callout_zone"]][1],
          "cap_stroke": cap["stroke"], "card_top": CARD_TOP["upper" if d["speaker_position"] == "lower" else "lower"]}
     m = MOTIONS[d["motion"]]
     css_callout = CALLOUT_CSS.substitute(v) + _sub(CALLOUT_EXTRA[d["callout_style"]], v)
@@ -540,4 +547,8 @@ def options_text() -> str:
                                     "hype": "big pops and bouncy arrivals, for energy"}),
         block("Caption styles (`caption_style`)", CAPTION_STYLES), block("Headline styles (`headline_style`)", HEADLINE_STYLES),
         block("Callout styles (`callout_style`)", CALLOUT_STYLES), block("End screens (`end_style`)", END_STYLES),
+        block("Caption position (`caption_y`)", {"standard": "the style's own place", "high": "70 px higher (clear of a speaker's lower body)",
+                                                 "low": "50 px lower"}),
+        block("Callout zone (`callout_zone`)", {k: f"{side} side, {'high' if top < 700 else 'middle' if top < 800 else 'low'}"
+                                                for k, (side, top) in CALLOUT_ZONES.items()}),
         block("Card kinds (`cards[].kind`)", CARD_KINDS)])

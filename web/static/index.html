@@ -787,13 +787,13 @@
   // ------------------------------------------------------------------ making a batch
   let job = null, watching = null, gen = 0, pollTimer = null, sel = 0, xhrs = [], cancelled = false, last = null, uploadingId = null;
   const STEPS = [["Upload your video", ["uploading"]], ["Listen to what you said", ["queued", "starting", "downloading", "preparing", "transcribing"]], ["Pick the best moments", ["planning"]],
-                 ["Cut, caption and add the end screen", ["rendering"]], ["Check every ad", ["checking"]], ["Save your ads", ["uploading-results"]]];
+                 ["Cut, caption and add the end screen", ["rendering"]], ["Check every ad", ["checking"]], ["Improve the weak ones", ["repairing"]], ["Save your ads", ["uploading-results"]]];
   function stepIndex(j) {
     if (!j) return 0;
     if (j.status === "uploading") return 0;
     if (j.status === "queued") return 1;
     const st = j.stage || "starting";
-    if (st === "uploading") return 5;
+    if (st === "uploading") return 6;
     const i = STEPS.findIndex(([, keys]) => keys.includes(st));
     return i < 0 ? 1 : i;
   }
@@ -812,7 +812,7 @@
       phase === "queued" ? (j.ahead ? `Waiting in line: ${j.ahead} job${j.ahead > 1 ? "s" : ""} ahead of this one.` : "Waiting for the editor to pick it up.") :
       `About ${j.minutes_left || 1} minute${(j.minutes_left || 1) > 1 ? "s" : ""} left. You can close this page and come back: the batch keeps going and is listed under Recent.`;
     const si = stepIndex(j);
-    $("wSteps").innerHTML = STEPS.map(([t], i) => `<li class="${i < si ? "done" : i === si ? "now" : ""}"><span class="pi">${i < si ? icon("check") : ""}</span>${esc(t)}${i === 3 && si === 3 && j && j.stage_detail ? ` <span class="hint">· ${esc(j.stage_detail)}</span>` : ""}</li>`).join("");
+    $("wSteps").innerHTML = STEPS.map(([t], i) => `<li class="${i < si ? "done" : i === si ? "now" : ""}"><span class="pi">${i < si ? icon("check") : ""}</span>${esc(t)}${(i === 3 || i === 5) && si === i && j && j.stage_detail ? ` <span class="hint">· ${esc(j.stage_detail)}</span>` : ""}</li>`).join("");
     $("wActs").hidden = !$("wConfirm").hidden;           // the poll must not bring Cancel back while Stop? is showing
     showEmpty("Making your ads", "The preview appears here when they're done.");
   }
@@ -1005,7 +1005,9 @@
     if (!r || !r.scores) return "";
     const chips = Object.keys(AREA).filter((a) => r.scores[a] != null).map((a) => { const n = Math.min(5, Math.max(0, Number(r.scores[a]) || 0)); return `<span class="score s${n}" title="${esc(AREA[a])}: ${n} out of 5">${esc(AREA[a])} <b>${n}</b></span>`; }).join("");
     const probs = (r.problems || []).map((p) => `<li><span class="hint">${p.at_s != null ? fmtTime(p.at_s) + " · " : ""}${esc(AREA[p.area] || p.area)}</span> ${esc(p.what)}${p.fix ? ` <span class="hint">Fix: ${esc(p.fix)}</span>` : ""}</li>`).join("");
-    return `<div class="card check${r.look ? " look" : ""}"><div class="head">${r.look ? icon("warn") + "Worth a look before you run it" : icon("sparkles") + "The AI's own check"}</div><div class="scores">${chips}</div>` +
+    const fixes = (ad.history || []).map((h) => `<li><span class="hint">Round ${esc(h.round)} · ${esc(h.scope === "structural" ? "the cut" : "the look")}</span> ${h.accepted ? "<strong>Kept.</strong>" : "Not kept."} ${esc(h.why)}${h.what ? ` <span class="hint">(${esc(h.what)})</span>` : ""}</li>`).join("");
+    return `<div class="card check${r.look ? " look" : ""}"><div class="head">${r.look || ad.needs_person ? icon("warn") + (ad.needs_person ? "Needs a person before it runs" : "Worth a look before you run it") : icon("sparkles") + "The AI's own check"}</div><div class="scores">${chips}</div>` +
+      (fixes ? `<p class="cap" style="margin-top:10px">What it tried to improve</p><ul class="probs">${fixes}</ul>` : "") +
       (r.verdict ? `<p class="hint" style="margin-top:8px">${esc(r.verdict)}</p>` : "") + (r.vs_references ? `<p class="hint" style="margin-top:6px"><strong>Next to ads that are working:</strong> ${esc(r.vs_references)}</p>` : "") + (probs ? `<ul class="probs">${probs}</ul>` : "") + `</div>`;
   }
   function feedbackHtml(jobId, ad) {

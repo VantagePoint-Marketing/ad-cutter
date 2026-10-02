@@ -575,7 +575,7 @@ def job_view(job_id: str) -> dict:
 
 # where each worker stage sits on the progress bar (percent), and the minutes a whole job usually takes
 STAGE_PERCENT = {"starting": 5, "downloading": 8, "preparing": 18, "transcribing": 28, "planning": 45,
-                 "rendering": 45, "checking": 88, "uploading": 97}
+                 "rendering": 45, "checking": 88, "repairing": 91, "uploading": 97}
 STAGE_SPAN = {"rendering": 42, "checking": 8}       # these two split their span across the ads (detail "ad 2 of 3")
 
 
@@ -593,6 +593,16 @@ def estimate(status: str, stage: str | None, detail: str | None, ads: int = 3) -
         percent += round(STAGE_SPAN[stage] * (n - 1) / m)
         ads = m
     return percent, max(1, round((6 + 3.5 * ads) * (100 - percent) / 100))
+
+
+def public_history(history) -> list[dict]:
+    """What the repair loop tried on one ad, as the page shows it (the worker wrote it; this only drops anything unexpected)."""
+    out = []
+    for h in history if isinstance(history, list) else []:
+        if isinstance(h, dict):
+            out.append({"round": int(h.get("round") or 0), "scope": str(h.get("scope") or "")[:12], "accepted": bool(h.get("accepted")),
+                        "what": str(h.get("what") or "")[:200], "why": str(h.get("why") or "")[:200]})
+    return out[:8]
 
 
 def public_review(review) -> dict | None:
@@ -629,6 +639,7 @@ def present(row: dict, ahead: int = 0, feedback: dict | None = None) -> dict:
                         "seconds": ad.get("seconds"), "layout_check": ad.get("layout_check"),
                         "speech_match": (ad.get("verify") or {}).get("match"), "error": ad.get("error"), "file": name,
                         "review": public_review(ad.get("review")), "feedback": (feedback or {}).get(ad.get("k")),
+                        "history": public_history(ad.get("history")), "needs_person": bool(ad.get("needs_person")),
                         "preview_url": b.get_url(key, name, expires=LINK_SECONDS) if key else None,
                         "download_url": b.get_url(key, name, attachment=True, expires=LINK_SECONDS) if key else None})
         notes_key = res.get("notes_key")

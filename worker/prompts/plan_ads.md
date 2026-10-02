@@ -150,6 +150,7 @@ Reply with one JSON object and nothing else:
         "font": "one of the fonts above",
         "palette": {{"accent": "#RRGGBB", "plate": "#RRGGBB", "mark": "#RRGGBB"}},
         "caption_style": "...", "headline_style": "...", "callout_style": "...", "end_style": "...",
+        "caption_y": "standard | high | low", "callout_zone": "right_mid | right_high | right_low | left_mid | left_high | left_low",
         "cards": [{{"kind": "stat", "from": 0, "to": 0, "text": "3 days", "label": "behind"}}],
         "why": "one sentence tying these choices to what you saw"
       }},

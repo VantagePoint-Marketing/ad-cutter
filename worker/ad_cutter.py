@@ -34,6 +34,7 @@ import shutil
 import string
 import subprocess
 import sys
+import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,7 @@ import numpy as np
 
 import design_kit
 import llm
+import repair
 import review
 from budget import BudgetExceeded, LocalLedger
 from llm import extract_json  # noqa: F401  (kept importable from here for existing callers and tests)
@@ -721,6 +723,7 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
     line and the cloud worker. `progress(stage, detail)` is called as work moves along. `team_notes` is the
     feedback block from feedback.team_notes. After rendering, Gemini scores each finished ad (review.py; off with
     `review_enabled: false` in the config). Returns plan, report, notes, planning cost and self-check cost."""
+    started = time.monotonic()
     progress("preparing", "checking and converting the footage")
     media = prepare(srcs, work, float(cfg.get("max_source_seconds", 600)), names)
     label = media["clips"][0]["name"] + (f" + {len(media['clips']) - 1} more" if len(media["clips"]) > 1 else "")
@@ -775,10 +778,57 @@ def run_pipeline(cfg: dict, srcs: Path | list[Path], work: Path, out_dir: Path, 
         for e in report:
             e["review"] = reviews.get(e["k"])
         notes += review_notes
+        loop_cost, loop_notes = repair_loop(cfg, client, plan, report, words, disp, en, media, work, out_dir, brief, references, progress, started,
+                                            spent=float(cfg.get("job_cost_before") or 0.0) + float(cost or 0.0) + review_cost)
+        review_cost += loop_cost
+        notes += loop_notes
 
     write_notes(out_dir, label, plan, notes, report, cost, cfg, brief)
     return {"plan": plan, "report": report, "notes": notes, "cost": cost, "duration": media["duration"],
             "clips": media["clips"], "review_cost": review_cost}
+
+
+def repair_loop(cfg: dict, client: llm.OpenRouter, plan: dict, report: list[dict], words: list[dict], disp: list[dict], en: Energy, media: dict,
+                work: Path, out_dir: Path, brief: str, references: str, progress, started: float, spent: float) -> tuple[float, list[str]]:
+    """After the first build and check: fix what the check found, keep only fixes that help (repair.py). Returns (dollars, notes). Quick effort,
+    `repair_enabled: false`, or nothing to fix means no change at all. Never raises for a problem with the loop itself; Stop/cancel pass through."""
+    effort = str(cfg.get("plan_effort") or "medium")
+    if not cfg.get("repair_enabled", True) or repair.ROUNDS.get(effort, 1) < 2:
+        return 0.0, []
+    repairer = repair.Repairer(cfg, client, words, transcript_for_prompt(words), clip_lines(media["clips"], words), validate_plan, work, brief)
+
+    def snapshot(k: int) -> Path:
+        keep = work / f"ad{k}" / "render.prev.mp4"
+        shutil.copyfile(work / f"ad{k}" / "render.mp4", keep)
+        return keep
+
+    def restore(k: int, keep: Path) -> None:
+        shutil.copyfile(keep, work / f"ad{k}" / "render.mp4")
+
+    def rebuild(k: int, ad: dict) -> dict:
+        entry = {"k": k, "ad": ad, "len": 0.0, "check": "not run", "file": None}
+        build_ad(cfg, k, ad, words, disp, en, media, work, out_dir, entry, render_it=True)
+        return entry
+
+    def review_one(entry: dict) -> tuple[dict | None, float]:
+        reviews, _notes, cost = review.review_ads(cfg, client, brief=brief, work=work, references=references,
+                                                  entries=[{**entry, "video": work / f"ad{entry['k']}" / "render.mp4"}])
+        return reviews.get(entry["k"]), cost
+
+    def discard(entry: dict) -> None:
+        if entry.get("file"):
+            (out_dir / entry["file"]).unlink(missing_ok=True)
+
+    def commit(k: int, ad: dict) -> None:
+        plan["ads"][k - 1] = ad
+
+    ctx = repair.Context(effort, repairer, rebuild, review_one, snapshot, restore, discard, commit, progress=progress,
+                         spent=lambda: spent, started=started)
+    try:
+        return repair.run_rounds([e for e in report if e.get("file")], ctx)
+    except (llm.LLMError, BudgetExceeded, AdCutterError, OSError, subprocess.SubprocessError) as err:   # noqa: BLE001 - the ads are already built
+        log.error("repair loop stopped: %s", err)
+        return 0.0, [f"The repair loop stopped early ({type(err).__name__}); the ads built so far were kept."]
 
 
 def place_callouts(spans: list[tuple[float, float, str]], body_len: float) -> list[tuple[float, float, str]]:
@@ -881,6 +931,11 @@ def write_notes(out_dir: Path, label: str, plan: dict, notes: list[str], report:
                   f"{v['size']}, audio {'yes' if v['audio'] else 'MISSING'}",
                   f"  - starts: heard \"{v['heard_start']}\" / captions \"{v['caption_start']}\"",
                   f"  - ends: heard \"{v['heard_end']}\" / captions \"{v['caption_end']}\""]
+        for h in e.get("history") or []:
+            L.append(f"- **Repair, round {h['round']} ({h['scope']}):** " + ("kept" if h["accepted"] else "not kept") + f". {h['why']}"
+                     + (f" ({h['what']})" if h.get("what") else ""))
+        if e.get("needs_person"):
+            L.append("- **NEEDS A PERSON:** the self-check scored compliance 2 or lower. The repair loop never changes claims by itself.")
         r = e.get("review")
         if r:
             L.append(f"- **Self-check:** {'LOOK AT THIS: ' if r.get('look') else ''}"
