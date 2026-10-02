@@ -81,6 +81,7 @@ export default defineRailway((ctx) => {
       ACCESS_KEY_ID: ref(media, "ACCESS_KEY_ID"),
       SECRET_ACCESS_KEY: ref(media, "SECRET_ACCESS_KEY"),
       APP_LINK_TOKEN: preserve(), // the secret part of the link; set by hand in Railway, never in a file
+      APP_EXTRA_LINK_TOKENS: preserve(), // more links for other people, comma separated; set by hand, never in a file
     },
   });
 

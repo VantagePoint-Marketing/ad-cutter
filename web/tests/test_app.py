@@ -195,8 +195,29 @@ def test_only_the_right_link_works(client):
 def test_healthz_reports_upload_setup(client):
     res = client.get("/healthz")
     assert res.status_code == 200
-    assert res.json() == {"ok": True, "link": "set", "uploads": "allowed from https://video-agent-staging.up.railway.app"}
+    assert res.json() == {"ok": True, "link": "set", "links": 1,
+                          "uploads": "allowed from https://video-agent-staging.up.railway.app"}
     assert client.bucket.origins == ["https://video-agent-staging.up.railway.app"]
+
+
+GIO = "gio-second-link-token-98765"
+
+
+def test_an_extra_link_works_like_the_main_one_and_can_be_removed_alone(client, monkeypatch):
+    monkeypatch.setattr(web, "EXTRA_TOKENS", [GIO])
+    assert client.get(f"/{GIO}/api/overview").status_code == 200
+    assert client.get(f"/{TOKEN}/api/overview").status_code == 200
+    assert client.get(f"/{GIO}/").status_code == 200 and client.get("/healthz").json()["links"] == 2
+    monkeypatch.setattr(web, "EXTRA_TOKENS", [])                   # take Gio's link away: only his stops working
+    assert client.get(f"/{GIO}/api/overview").status_code == 404 and client.get(f"/{TOKEN}/api/overview").status_code == 200
+
+
+def test_a_weak_extra_link_is_ignored_and_the_main_link_is_still_required(client, monkeypatch):
+    monkeypatch.setattr(web, "EXTRA_TOKENS", ["short", "has spaces in it too long ok", ""])
+    assert client.get("/short/api/overview").status_code == 404 and client.get("/healthz").json()["links"] == 1
+    monkeypatch.setattr(web, "EXTRA_TOKENS", [GIO])
+    monkeypatch.setattr(web, "TOKEN", "")                          # no valid main link: nothing is reachable
+    assert client.get(f"/{GIO}/api/overview").status_code == 404
 
 
 @pytest.mark.parametrize("bad", ["", "short", "has spaces in it, oh no", "x" * 15])

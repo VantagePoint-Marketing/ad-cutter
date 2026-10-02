@@ -3,6 +3,13 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## More than one link (2026-10-02, committed locally, not pushed)
+
+`APP_EXTRA_LINK_TOKENS` (web service variable, comma separated, set by hand in Railway, `preserve()` in the IaC) adds extra
+links next to `APP_LINK_TOKEN`, e.g. one per person, so one person's link can be switched off alone (delete it from the
+variable). An extra shorter than 16 characters or with odd characters is ignored. `/healthz` shows how many links work.
+Anyone with any link sees the same team data. First extra link: for Gio, requested by Robert 2026-10-02.
+
 ## The new page: Robert's final GUI, first release (2026-10-01, built and tested on the PC, not pushed)
 
 Robert delivered the final design (`AI video editor GUI mockups.zip` on his Desktop: Claude Design project, three tabs,

@@ -4,6 +4,7 @@
 
 Environment (Railway variables, declared in .railway/railway.ts):
     APP_LINK_TOKEN                     the secret part of the link, https://<domain>/<token>/  (set by hand)
+    APP_EXTRA_LINK_TOKENS              optional, more links for other people (comma separated, set by hand)
     DATABASE_URL                       the Postgres the worker uses (private network)
     BUCKET, ACCESS_KEY_ID, SECRET_ACCESS_KEY, ENDPOINT, REGION     the media bucket, the same one the worker uses
     RAILWAY_PUBLIC_DOMAIN              set by Railway: this page's own address, allowed to upload into the bucket
@@ -39,6 +40,7 @@ from storage import MAX_CLIPS, Bucket  # noqa: E402
 
 log = logging.getLogger("video-agent-web")
 TOKEN = os.environ.get("APP_LINK_TOKEN", "").strip()
+EXTRA_TOKENS = [t.strip() for t in os.environ.get("APP_EXTRA_LINK_TOKENS", "").split(",") if t.strip()]
 MAX_CLIP_BYTES = 4 * 1024 ** 3           # the worker refuses larger downloads
 MAX_JOB_BYTES = 10 * 1024 ** 3           # all clips together (10 minutes of 4K phone footage is about 4 GB)
 MAX_BRIEF = 2000                         # characters of the request that reach Gemini (worker: ad_cutter.MAX_BRIEF)
@@ -82,9 +84,25 @@ def token_problem() -> str | None:
     return None
 
 
+def usable(token: str) -> bool:
+    return len(token) >= 16 and re.fullmatch(r"[A-Za-z0-9_-]+", token) is not None
+
+
+def links() -> list[str]:
+    """Every link that works: the main one plus any extra ones (APP_EXTRA_LINK_TOKENS, comma separated), so one
+    person's link can be switched off without touching the others. An extra that is too short or has odd
+    characters is ignored, never accepted."""
+    return [t for t in [TOKEN, *EXTRA_TOKENS] if usable(t)]
+
+
 def link(token: str) -> str:
     """The secret part of the link is the whole access control. Anything else is a plain 404."""
-    if token_problem() or not hmac.compare_digest(token.encode("utf-8", "replace"), TOKEN.encode("utf-8")):
+    if token_problem():
+        raise HTTPException(404, "Not found")
+    given, ok = token.encode("utf-8", "replace"), False
+    for good in links():                 # compare against every link, without stopping at the first match
+        ok |= hmac.compare_digest(given, good.encode("utf-8"))
+    if not ok:
         raise HTTPException(404, "Not found")
     return token
 
@@ -128,7 +146,7 @@ app = FastAPI(title="Video Agent", docs_url=None, redoc_url=None, openapi_url=No
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "link": token_problem() or "set", "uploads": STATE["uploads"]}
+    return {"ok": True, "link": token_problem() or "set", "links": len(links()), "uploads": STATE["uploads"]}
 
 
 @app.get("/{token}/", response_class=HTMLResponse)
