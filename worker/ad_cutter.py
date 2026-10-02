@@ -98,7 +98,8 @@ def hdr_to_sdr(transfer: str, tonemap: bool = True) -> str:
     properly (linear light, gamut and tone mapping); without it the pixels are kept and only the tags are changed,
     a flatter look that needs no zscale filter."""
     if tonemap:
-        return (f"zscale=tin={transfer}:min=2020_ncl:pin=2020:rin=limited:t=linear:npl=100,format=gbrpf32le,"
+        npl = 1000 if transfer == "smpte2084" else 100       # PQ is mastered for a brighter peak than HLG's 100-nit reference
+        return (f"zscale=tin={transfer}:min=2020_ncl:pin=2020:rin=limited:t=linear:npl={npl},format=gbrpf32le,"
                 "zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
     return "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=yuv420p"
 
@@ -118,6 +119,8 @@ def working_copy_args(srcs: list[Path], demuxers: list[str], seconds: list[float
         chain.append(f"[{n}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a{n}]")
         labels.append(f"[v{n}][a{n}]")
     chain.append(f"{''.join(labels)}concat=n={len(srcs)}:v=1:a=1[v][a]")
+    # when any clip is HDR the whole output is labelled standard (bt709); an untagged or older-standard SDR clip joined
+    # with it is relabelled too, a very slight colour shift that is better than a mixed-up label
     tags = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"] \
         if hdr and any(hdr) else []                  # the result must say it is ordinary video
     return [*args, "-filter_complex", ";".join(chain), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset",
