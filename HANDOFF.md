@@ -3,6 +3,34 @@
 Updated 2026-10-01, evening ET. Read this first. The memory file `video_agent_plan.md` carries the plan summary.
 The approved plan for training is on Robert's Desktop: `Video Agent - Library and Loop plan (2026-10-01).md`.
 
+## The knowledge hub and the self-teaching agent (2026-10-02, committed locally on `w0-worker-cloud`, NOT pushed)
+
+What exists (commits 48f036f, f59429c, 386ceb3, 4a03e36, then "Hub part 5"):
+- **Hub** (`worker/hub.py`, migration `db/migrations/005_hub.sql`): one Postgres graph of notes (source, lesson, technique, recipe, skill,
+  rule, example) with links and evidence, plus the goal queue `kb_goals` (kinds tutorial, reference, ads). All hub SQL is in `hub.py`.
+  `hub_import.Maintainer` seeds it (techniques, ~skill notes from `hub_seed/`, the library's lessons) a little at a time; `hub_export.py`
+  makes the Obsidian vault zip.
+- **Planner** is told what the hub knows (`hub_context.fetch`, bounded, hints only). **Self-check** compares each finished ad with a few
+  reference examples (`hub_context.fetch_references`; the scorecard shows "Next to ads that are working"), and each comparison is
+  written to `kb_evidence` (`jobs.record_comparisons`).
+- **Learner** (`worker/learner.py`, only while no job waits, `LEARNING_ENABLED=1`): tutorial and reference goals search YouTube and watch
+  public videos on Gemini's free tier; **ads goals** use Foreplay (`worker/foreplay.py`): one page of `longest_running`, live,
+  English, 10 to 75 s video ads per step (1 credit per ad), a cheap OpenRouter model (Flash-Lite, zero retention, spend ledger) describes
+  each ad from its words and metadata (`prompts/analyse_ads.md`, `hub_ads.py`), filed as `example` notes `ref-fp-<id>` with running days.
+  Limits (config `learn`): 600 Foreplay credits a month, 100 always left in the account, 10 ads a call, 2 pages a goal. A paid page is saved
+  to the goal before analysis, so a crash cannot lose or repay it. Ads goals pause alone (they never block video goals).
+- **Page**: new Knowledge tab (counts, search, note view with links, Obsidian download, "Teach it something", what it is learning).
+  Web endpoints: `/api/knowledge`, `/search`, `/note`, `/export`, `POST /goals`, `POST /goals/{id}/remove`. The web image now also
+  copies `worker/hub.py` and `worker/hub_export.py` (Dockerfile + `watchPatterns`).
+- **Unverified on real Postgres** (no local Postgres, `railway ssh` denied): the hub SQL and the learner's SQL are only run against stand-ins
+  in tests. At worker boot, `Hub.selftest()` (via the maintainer's first step) and `Store.selftest()` (jobs.py, retried 3 times) run every
+  statement on the real database and log `hub: self-test: ...` / `learner self-test: ...` (or FAILED; a failed learner self-test turns ads
+  goals off). **After the next deploy, read the worker log for those two lines before trusting any of it.**
+- **Needs Robert**: `FOREPLAY_API_KEY` in the worker's Railway variables (the IaC marks it `preserve()`); the ads goals only run when it and
+  `OPENROUTER_VIDEO_AGENT_KEY` are set. Learning stays off in production (`LEARNING_ENABLED` is "0" there).
+- **Not built yet**: playbook distillation (a short human-edited "what is working now" note), hub tools the loop can call mid-plan,
+  watching Foreplay ads' media, a design-engine that uses the hub's references when building cards.
+
 ## More than one link (2026-10-02, committed locally, not pushed)
 
 `APP_EXTRA_LINK_TOKENS` (web service variable, comma separated, set by hand in Railway, `preserve()` in the IaC) adds extra
