@@ -58,8 +58,9 @@ original look. Unless the request asks for one consistent look, ads in one batch
 
 Colours (`palette`): three colours as #RRGGBB. `accent` is used for the highlighted spoken word, the end-screen button and
 card accents, and must be bright enough to read on a dark outline; `plate` is the background behind dark text (cards,
-the headline card); `mark` is the callout colour. {brand_name}'s own colours are violet and midnight blue; use them
-when the footage suits, but you are free to choose others that fit the footage and the angle.
+the headline card); `mark` is the callout colour. Do NOT use {brand_name}'s brand colours (violet and midnight blue)
+or any fixed house palette: choose colours only from what is in the footage (the room, the clothing, the lighting) and the
+mood of the angle, and vary them from ad to ad.
 
 `speaker_position`: where the speaker is in the frame (`upper`, `middle` or `lower`). Cards normally sit in the lower
 part of the screen; if the speaker is low in the frame they move to the upper part.
